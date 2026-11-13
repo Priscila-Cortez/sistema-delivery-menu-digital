@@ -1,0 +1,5 @@
+// 
+$mail->SMTPDebug = 2; // O usa 3 para información aún más detallada
+$mail->Debugoutput = function($str, $level) {
+    echo "debug: $str <br>";
+};
