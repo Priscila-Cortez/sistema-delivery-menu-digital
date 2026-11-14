@@ -1,0 +1,938 @@
+<?php
+session_start();
+require 'conexion.php';
+require '../1_Presentacion/vendor/autoload.php';
+
+use PHPMailer\PHPMailer\PHPMailer;
+use PHPMailer\PHPMailer\Exception as MailException;
+
+header('Content-Type: application/json; charset=utf-8');
+
+if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
+    echo json_encode(['status' => 405, 'message' => 'Método no permitido']);
+    exit;
+}
+
+if (!isset($_SESSION['idUsuario'])) {
+    echo json_encode(['status' => 401, 'message' => 'Sesión expirada']);
+    exit;
+}
+
+$idRequerimiento = isset($_POST['idRequerimiento']) ? (int)$_POST['idRequerimiento'] : 0;
+if ($idRequerimiento <= 0) {
+    $idRequerimiento = isset($_POST['idReq']) ? (int)$_POST['idReq'] : 0;
+}
+$personas = isset($_POST['personas']) && is_array($_POST['personas']) ? $_POST['personas'] : [];
+
+if ($idRequerimiento <= 0) {
+    echo json_encode(['status' => 422, 'message' => 'Datos inválidos']);
+    exit;
+}
+
+$ids = array_map('intval', $personas);
+$hayPersonasSeleccionadas = !empty($ids);
+
+// Corregir la ruta física de la firma digital desde la carpeta 3_Datos/
+$rutaFirma = __DIR__ . '/../1_Presentacion/img/FirmaDigital.jpg';
+if (!file_exists($rutaFirma)) {
+    $rutaFirma = 'img/FirmaDigital.jpg'; // Fallback por si la estructura cambia
+}
+
+mysqli_begin_transaction($con);
+$tmpFiles = [];
+
+try {
+    if ($hayPersonasSeleccionadas) {
+        $placeholders = implode(',', array_fill(0, count($ids), '?'));
+        $types = str_repeat('i', count($ids)) . 'i';
+        $sql = "UPDATE persona SET estado_aprobacion = 1 WHERE idPersona IN ($placeholders) AND idRequerimiento = ?";
+        $stmt = mysqli_prepare($con, $sql);
+        if (!$stmt) throw new Exception(mysqli_error($con));
+
+        $params = array_merge($ids, [$idRequerimiento]);
+        $refs = [];
+        foreach ($params as $k => $v) $refs[$k] = & $params[$k];
+        array_unshift($refs, $types);
+        call_user_func_array('mysqli_stmt_bind_param', array_merge([$stmt], $refs));
+        mysqli_stmt_execute($stmt);
+        $affected = mysqli_stmt_affected_rows($stmt);
+        mysqli_stmt_close($stmt);
+    } else {
+        $affected = 0;
+    }
+
+    $stmtReq = mysqli_prepare($con, "UPDATE requerimiento SET aceptado = 1 WHERE idRequerimiento = ?");
+    if (!$stmtReq) throw new Exception(mysqli_error($con));
+    mysqli_stmt_bind_param($stmtReq, 'i', $idRequerimiento);
+    mysqli_stmt_execute($stmtReq);
+    mysqli_stmt_close($stmtReq);
+
+    if ($hayPersonasSeleccionadas) {
+        $sqlInfo = "SELECT r.idRequerimiento, r.idPago, r.idCliente, c.nombre AS rq_cliente, u.correo AS correoUsuario, u.nombres AS nombresUsuario, u.idCargo AS idCargoUsuario
+                    FROM requerimiento r
+                    INNER JOIN cliente c ON c.idCliente = r.idCliente
+                    INNER JOIN usuario u ON u.idUsuario = r.idUsuario
+                    WHERE r.idRequerimiento = ? LIMIT 1";
+        $stmt2 = mysqli_prepare($con, $sqlInfo);
+        mysqli_stmt_bind_param($stmt2, 'i', $idRequerimiento);
+        mysqli_stmt_execute($stmt2);
+        $res2 = mysqli_stmt_get_result($stmt2);
+        $info = mysqli_fetch_assoc($res2);
+        mysqli_stmt_close($stmt2);
+
+        $rq_cliente = isset($info['rq_cliente']) ? $info['rq_cliente'] : '';
+        $correo_cliente = isset($_SESSION['correo']) ? trim((string)$_SESSION['correo']) : '';
+        $fecha = date('d-m-Y');
+
+        $correo_destino = isset($info['correoUsuario']) ? trim((string)$info['correoUsuario']) : '';
+        if ($correo_destino === '') {
+            $correo_destino = $correo_cliente;
+        }
+
+        if (!empty($correo_destino)) {
+            $name = 'SISTEMA DONNA';
+            $email = 'donna@grupot-soluciona.com.pe';
+
+            $subject = 'Solicitud de Antecedentes | ' . $rq_cliente . ' | ' . $fecha;
+            $message = "Estimado Cliente :<br> <br>
+            Recibimos correctamente la información para la gestión de investigaciones basicas y lo estamos procesando, en 24 horas le estaremos remitiendo los resultados.
+            <br> <br>
+            Att:
+            <br> <br>
+            <img src=\"cid:firma\" />";
+
+            $mail = new PHPMailer(true);
+            $mail->isHTML(true);
+            $mail->isSMTP();
+            $mail->Host = 'localhost';
+            $mail->SMTPAuth = false;
+            $mail->SMTPAutoTLS = false;
+            $mail->Port = 25;
+            $mail->Username = 'Sistemas.Tsoluciona@gmail.com';
+            $mail->Password = 'hquuqnedlomczity';
+            $mail->CharSet = 'UTF-8';
+
+            if (file_exists($rutaFirma)) {
+                $mail->AddEmbeddedImage($rutaFirma, 'firma', 'FirmaDigital.jpg');
+            }
+
+            $mail->setFrom($email, $name);
+            $mail->addAddress($correo_destino);
+            $mail->addCC('rperez@t-soluciona.com.pe');
+            $mail->addCC('cpalacios@t-soluciona.com.pe');
+            $mail->addBCC('ravila@grupot-soluciona.com.pe');
+            $mail->addBCC('soporteti@grupot-soluciona.com.pe');
+            $mail->Subject = $subject;
+            $mail->Body = $message;
+            $mail->send();
+        }
+    } else {
+        $sqlInfo = "SELECT r.idRequerimiento, r.idPago, r.idCliente, c.nombre AS rq_cliente
+                    FROM requerimiento r
+                    INNER JOIN cliente c ON c.idCliente = r.idCliente
+                    WHERE r.idRequerimiento = ? LIMIT 1";
+        $stmtInfo = mysqli_prepare($con, $sqlInfo);
+        if ($stmtInfo) {
+            mysqli_stmt_bind_param($stmtInfo, 'i', $idRequerimiento);
+            mysqli_stmt_execute($stmtInfo);
+            $resInfo = mysqli_stmt_get_result($stmtInfo);
+            $infoJefe = mysqli_fetch_assoc($resInfo);
+            mysqli_stmt_close($stmtInfo);
+        }
+
+        $rq_cliente = isset($infoJefe['rq_cliente']) ? $infoJefe['rq_cliente'] : '';
+        $fecha = date('d-m-Y');
+        $name = 'SISTEMA DONNA';
+        $email = 'donna@grupot-soluciona.com.pe';
+
+        $idCargoUsuario = isset($_SESSION['idCargo']) ? (int)$_SESSION['idCargo'] : 0;
+        $stmtCargoSup = mysqli_prepare($con, "SELECT idCargoSup FROM cargo_jefe WHERE idCargoInf = ? LIMIT 1");
+        mysqli_stmt_bind_param($stmtCargoSup, 'i', $idCargoUsuario);
+        mysqli_stmt_execute($stmtCargoSup);
+        mysqli_stmt_bind_result($stmtCargoSup, $idCargoSuperior);
+
+        if (mysqli_stmt_fetch($stmtCargoSup)) {
+            mysqli_stmt_close($stmtCargoSup);
+
+            $stmtJefe = mysqli_prepare($con, "SELECT correo, nombres FROM usuario WHERE idCargo = ? AND idEstado = 1 LIMIT 1");
+            mysqli_stmt_bind_param($stmtJefe, 'i', $idCargoSuperior);
+            mysqli_stmt_execute($stmtJefe);
+            mysqli_stmt_bind_result($stmtJefe, $correoJefe, $nombresJefe);
+
+            if (mysqli_stmt_fetch($stmtJefe) && !empty($correoJefe)) {
+                mysqli_stmt_close($stmtJefe);
+
+                $subject = 'Antecedentes Pendientes de Visto Bueno | ' . $rq_cliente . ' | ' . $fecha;
+                $message = "Estimado $nombresJefe,<br> <br>
+                Se han recibido antecedentes para revisar y dar visto bueno.
+                <br><br>
+                Cliente: $rq_cliente
+                <br>
+                Favor revisar y aprobar cuando corresponda.
+                <br> <br>
+                Att:
+                <br> <br>
+                <img src=\"cid:firma\" />";
+
+                $mail = new PHPMailer(true);
+                $mail->isHTML(true);
+                $mail->isSMTP();
+                $mail->Host = 'localhost';
+                $mail->SMTPAuth = false;
+                $mail->SMTPAutoTLS = false;
+                $mail->Port = 25;
+                $mail->Username = 'Sistemas.Tsoluciona@gmail.com';
+                $mail->Password = 'hquuqnedlomczity';
+                $mail->CharSet = 'UTF-8';
+
+                if (file_exists($rutaFirma)) {
+                    $mail->AddEmbeddedImage($rutaFirma, 'firma', 'FirmaDigital.jpg');
+                }
+
+                $mail->setFrom($email, $name);
+                $mail->addAddress($correoJefe);
+
+                $stmtDocs = mysqli_prepare($con, "SELECT doc_nombre, doc_extension, doc FROM requerimiento_comprobante WHERE idRequerimiento = ? ORDER BY idRequerimientoComprobante ASC");
+                if ($stmtDocs) {
+                    mysqli_stmt_bind_param($stmtDocs, 'i', $idRequerimiento);
+                    mysqli_stmt_execute($stmtDocs);
+                    $resDocs = mysqli_stmt_get_result($stmtDocs);
+                    while ($doc = mysqli_fetch_assoc($resDocs)) {
+                        if (empty($doc['doc'])) {
+                            continue;
+                        }
+                        $tmpPath = tempnam(sys_get_temp_dir(), 'reqdoc_');
+                        if ($tmpPath !== false) {
+                            file_put_contents($tmpPath, $doc['doc']);
+                            $tmpFiles[] = $tmpPath;
+                            $nombreAdjunto = !empty($doc['doc_nombre']) ? $doc['doc_nombre'] : ('documento_' . count($tmpFiles) . '.' . (!empty($doc['doc_extension']) ? $doc['doc_extension'] : 'pdf'));
+                            $mail->addAttachment($tmpPath, $nombreAdjunto);
+                        }
+                    }
+                    mysqli_stmt_close($stmtDocs);
+                }
+
+                $mail->send();
+            } else {
+                if ($stmtJefe) mysqli_stmt_close($stmtJefe);
+            }
+        } else {
+            if ($stmtCargoSup) mysqli_stmt_close($stmtCargoSup);
+        }
+    }
+
+    // Limpiar archivos temporales de comprobantes
+    foreach ($tmpFiles as $tmpFile) {
+        if (file_exists($tmpFile)) {
+            @unlink($tmpFile);
+        }
+    }
+
+    mysqli_commit($con);
+    echo json_encode(['status' => 200, 'message' => 'Requerimiento procesado', 'affected' => $affected]);
+} catch (Throwable $e) {
+    mysqli_rollback($con);
+    
+    // Limpiar archivos temporales en caso de error
+    foreach ($tmpFiles as $tmpFile) {
+        if (file_exists($tmpFile)) {
+            @unlink($tmpFile);
+        }
+    }
+
+    echo json_encode([
+        'status' => 500, 
+        'message' => 'Error al procesar la aprobación o el envío del correo', 
+        'error' => $e->getMessage()
+    ]);
+}
+?>
+
+
+
+
+
+
+$mail = new PHPMailer(true);
+$mail->isHTML(true);
+$mail->isSMTP();
+$mail->Host       = 'mail.pilsac.com.pe';
+$mail->SMTPAuth   = true;
+$mail->Username   = 'agenda@pilsac.com.pe';
+$mail->Password   = 'Gts10203040*';
+$mail->SMTPSecure = PHPMailer::ENCRYPTION_SMTPS; // Obligatorio para SSL en puerto 465
+$mail->Port       = 465;
+$mail->CharSet    = 'UTF-8';
+
+// El remitente oficial
+$mail->setFrom('agenda@pilsac.com.pe', 'Sistema de Requerimientos');
+
+
+
+
+
+impexc
+<?php
+require '../3_Datos/conexion.php';
+require 'vendor/autoload.php';
+
+use PhpOffice\PhpSpreadsheet\IOFactory;
+use PHPMailer\PHPMailer\PHPMailer;
+use PHPMailer\PHPMailer\Exception as MailException;
+
+require './PHPMailer/src/Exception.php';
+require './PHPMailer/src/PHPMailer.php';
+require './PHPMailer/src/SMTP.php';
+
+header('Content-Type: application/json; charset=utf-8');
+mysqli_report(MYSQLI_REPORT_ERROR | MYSQLI_REPORT_STRICT);
+
+session_start();
+
+if (!isset($_POST['save_excel_data'])) {
+    echo json_encode([
+        'status' => 400,
+        'message' => 'Solicitud inválida.'
+    ]);
+    exit;
+}
+
+if (!isset($_SESSION['idUsuario']) || !isset($_SESSION['idCliente'])) {
+    echo json_encode([
+        'status' => 401,
+        'message' => 'Sesión expirada. Vuelva a iniciar sesión.'
+    ]);
+    exit;
+}
+
+$idCliente = isset($_POST['idCliente']) ? (int)$_POST['idCliente'] : 0;
+$idPago = isset($_POST['idPago']) ? (int)$_POST['idPago'] : 0;
+$correo_cliente = isset($_SESSION['correo']) ? trim((string)$_SESSION['correo']) : '';
+$nombres_cliente = isset($_SESSION['nombres']) ? trim((string)$_SESSION['nombres']) : '';
+$usuario_cliente = (int)$_SESSION['idUsuario'];
+
+$estadoAprobacion = 1;
+$idCargoUsuario = isset($_SESSION['idCargo']) ? (int)$_SESSION['idCargo'] : 0;
+$tieneJefe = false;
+
+if ($idCargoUsuario > 0) {
+    $stmtCheck = mysqli_prepare($con, "SELECT idCargoSup FROM cargo_jefe WHERE idCargoInf = ? LIMIT 1");
+    if ($stmtCheck) {
+        mysqli_stmt_bind_param($stmtCheck, 'i', $idCargoUsuario);
+        mysqli_stmt_execute($stmtCheck);
+        mysqli_stmt_bind_result($stmtCheck, $tmpSup);
+        if (mysqli_stmt_fetch($stmtCheck)) {
+            $tieneJefe = true;
+        }
+        mysqli_stmt_close($stmtCheck);
+    }
+}
+
+if ($tieneJefe) {
+    $estadoAprobacion = 0;
+}
+
+if ($idCliente <= 0 || $idPago <= 0) {
+    echo json_encode([
+        'status' => 422,
+        'message' => 'Cliente o método de pago inválido.'
+    ]);
+    exit;
+}
+
+if ($correo_cliente === '' || $nombres_cliente === '') {
+    echo json_encode([
+        'status' => 422,
+        'message' => 'Faltan datos de sesión para enviar notificación (correo o nombres).'
+    ]);
+    exit;
+}
+
+if (!isset($_FILES['import_file']) || $_FILES['import_file']['error'] !== UPLOAD_ERR_OK) {
+    echo json_encode([
+        'status' => 422,
+        'message' => 'Debe adjuntar un archivo de requerimiento válido.'
+    ]);
+    exit;
+}
+
+$voucherNames = [];
+$voucherTmpNames = [];
+
+if (isset($_FILES["import_vaucher"])) {
+    if (is_array($_FILES["import_vaucher"]["name"])) {
+        $voucherNames = $_FILES["import_vaucher"]["name"];
+        $voucherTmpNames = $_FILES["import_vaucher"]["tmp_name"];
+    } else {
+        $voucherNames = [$_FILES["import_vaucher"]["name"]];
+        $voucherTmpNames = [$_FILES["import_vaucher"]["tmp_name"]];
+    }
+}
+
+$voucherNamesFiltrados = [];
+$voucherTmpNamesFiltrados = [];
+
+foreach ($voucherNames as $index => $voucherName) {
+    $voucherTmp = isset($voucherTmpNames[$index]) ? $voucherTmpNames[$index] : null;
+
+    if (empty($voucherName) || empty($voucherTmp)) {
+        continue;
+    }
+
+    if (preg_match('/^\d{8}\.[^.]+$/', $voucherName)) {
+        $voucherNamesFiltrados[] = $voucherName;
+        $voucherTmpNamesFiltrados[] = $voucherTmp;
+    }
+}
+
+$voucherNames = $voucherNamesFiltrados;
+$voucherTmpNames = $voucherTmpNamesFiltrados;
+
+try {
+    date_default_timezone_set('America/Lima');
+    $fecha = date('d-m-Y');
+    $fechaRegistro = date('Y-m-d H:i:s');
+
+    mysqli_begin_transaction($con);
+
+    $rq_cliente = '';
+
+    $stmtCliente = mysqli_prepare($con, "SELECT nombre FROM cliente WHERE idCliente = ? LIMIT 1");
+    mysqli_stmt_bind_param($stmtCliente, "i", $idCliente);
+    mysqli_stmt_execute($stmtCliente);
+    mysqli_stmt_bind_result($stmtCliente, $rq_cliente);
+    mysqli_stmt_fetch($stmtCliente);
+    if ($stmtCliente) {
+        mysqli_stmt_close($stmtCliente);
+    }
+
+    if (empty($rq_cliente)) {
+        throw new Exception('No se encontró el nombre del cliente para el asunto del correo.');
+    }
+
+    $rq_archivo = $_FILES['import_file']['name'];
+    $rq_fuente = $_FILES['import_file']['tmp_name'];
+    $rq_extension = pathinfo($rq_archivo, PATHINFO_EXTENSION);
+    $rq_completo = 'Donna_antecedentes_' . $fecha . '.' . $rq_extension;
+
+    // Ruta segura de la firma
+    $rutaFirma = __DIR__ . '/img/FirmaDigital.jpg';
+    if (!file_exists($rutaFirma)) {
+        $rutaFirma = 'img/FirmaDigital.jpg';
+    }
+
+    try {
+        if ($estadoAprobacion == 1) {
+            $subject = 'Solicitud de Antecedentes | ' . $rq_cliente . ' | ' . $fecha;
+            $message = "Estimado Cliente :<br> <br>
+            Recibimos correctamente la información para la gestión de investigaciones basicas y lo estamos procesando, en 24 horas le estaremos remitiendo los resultados.
+            <br> <br>
+            Att:
+            <br> <br>
+            <img src=\"cid:firma\" />";
+
+            $mail = new PHPMailer(true);
+            $mail->isHTML(true);
+            $mail->isSMTP();
+            $mail->Host       = 'mail.pilsac.com.pe';
+            $mail->SMTPAuth   = true;
+            $mail->Username   = 'agenda@pilsac.com.pe';
+            $mail->Password   = 'Gts10203040*';
+            $mail->SMTPSecure = PHPMailer::ENCRYPTION_SMTPS;
+            $mail->Port       = 465;
+            $mail->CharSet    = 'UTF-8';
+
+            if (file_exists($rutaFirma)) {
+                $mail->AddEmbeddedImage($rutaFirma, 'firma', 'FirmaDigital.jpg');
+            }
+
+            if (is_uploaded_file($rq_fuente)) {
+                $mail->addAttachment($rq_fuente, $rq_completo);
+            }
+
+            if (($idPago == 1 || $idPago == 3) && !empty($voucherTmpNames)) {
+                foreach ($voucherTmpNames as $index => $tmpVoucher) {
+                    if (!is_uploaded_file($tmpVoucher)) {
+                        continue;
+                    }
+
+                    $voucherOriginal = isset($voucherNames[$index]) ? $voucherNames[$index] : ('voucher_' . ($index + 1));
+                    $mail->addAttachment($tmpVoucher, $voucherOriginal);
+                }
+            }
+
+            $mail->setFrom('agenda@pilsac.com.pe', 'Sistema de Requerimientos');
+            $mail->addAddress($correo_cliente);
+
+            $idCargoUsuario = isset($_SESSION['idCargo']) ? (int)$_SESSION['idCargo'] : 0;
+            if ($idCargoUsuario > 0) {
+                $stmtCargoSup = mysqli_prepare($con, "SELECT idCargoSup FROM cargo_jefe WHERE idCargoInf = ? LIMIT 1");
+                if ($stmtCargoSup) {
+                    mysqli_stmt_bind_param($stmtCargoSup, 'i', $idCargoUsuario);
+                    mysqli_stmt_execute($stmtCargoSup);
+                    mysqli_stmt_bind_result($stmtCargoSup, $idCargoSuperior);
+                    if (mysqli_stmt_fetch($stmtCargoSup)) {
+                        $stmtJefe = mysqli_prepare($con, "SELECT correo FROM usuario WHERE idCargo = ? AND idEstado = 1 LIMIT 1");
+                        if ($stmtJefe) {
+                            mysqli_stmt_bind_param($stmtJefe, 'i', $idCargoSuperior);
+                            mysqli_stmt_execute($stmtJefe);
+                            mysqli_stmt_bind_result($stmtJefe, $correoJefe);
+                            if (mysqli_stmt_fetch($stmtJefe) && !empty($correoJefe)) {
+                                $mail->addCC($correoJefe);
+                            }
+                            mysqli_stmt_close($stmtJefe);
+                        }
+                    }
+                    mysqli_stmt_close($stmtCargoSup);
+                }
+            }
+
+            $mail->addCC('rperez@t-soluciona.com.pe');
+            $mail->addCC('cpalacios@t-soluciona.com.pe');
+            $mail->addBCC('ravila@grupot-soluciona.com.pe');
+            $mail->addBCC('soporteti@grupot-soluciona.com.pe');
+            $mail->addBCC('Sistemas1@grupot-soluciona.com.pe', 'Copia de Pruebas');
+            $mail->Subject = $subject;
+            $mail->Body = $message;
+            $mail->send();
+        } else {
+            $idCargoUsuario = (int)$_SESSION['idCargo'];
+            $stmtCargoSup = mysqli_prepare($con, "SELECT idCargoSup FROM cargo_jefe WHERE idCargoInf = ? LIMIT 1");
+            mysqli_stmt_bind_param($stmtCargoSup, 'i', $idCargoUsuario);
+            mysqli_stmt_execute($stmtCargoSup);
+            mysqli_stmt_bind_result($stmtCargoSup, $idCargoSuperior);
+            
+            if (mysqli_stmt_fetch($stmtCargoSup)) {
+                mysqli_stmt_close($stmtCargoSup);
+                
+                $stmtJefe = mysqli_prepare($con, "SELECT correo, nombres FROM usuario WHERE idCargo = ? AND idEstado = 1 LIMIT 1");
+                mysqli_stmt_bind_param($stmtJefe, 'i', $idCargoSuperior);
+                mysqli_stmt_execute($stmtJefe);
+                mysqli_stmt_bind_result($stmtJefe, $correoJefe, $nombresJefe);
+                
+                if (mysqli_stmt_fetch($stmtJefe) && !empty($correoJefe)) {
+                    mysqli_stmt_close($stmtJefe);
+                    
+                    $subject = 'Antecedentes Pendientes de Visto Bueno | ' . $rq_cliente . ' | ' . $fecha;
+                    $message = "Estimado $nombresJefe,<br> <br>
+                    Se han recibido antecedentes para revisar y dar visto bueno.
+                    <br><br>
+                    Cliente: $rq_cliente
+                    <br>
+                    Favor revisar y aprobar cuando corresponda.
+                    <br> <br>
+                    Att:
+                    <br> <br>
+                    <img src=\"cid:firma\" />";
+
+                    $mail = new PHPMailer(true);
+                    $mail->isHTML(true);
+                    $mail->isSMTP();
+                    $mail->Host       = 'mail.pilsac.com.pe';
+                    $mail->SMTPAuth   = true;
+                    $mail->Username   = 'agenda@pilsac.com.pe';
+                    $mail->Password   = 'Gts10203040*';
+                    $mail->SMTPSecure = PHPMailer::ENCRYPTION_SMTPS;
+                    $mail->Port       = 465;
+                    $mail->CharSet    = 'UTF-8';
+
+                    if (file_exists($rutaFirma)) {
+                        $mail->AddEmbeddedImage($rutaFirma, 'firma', 'FirmaDigital.jpg');
+                    }
+
+                    $mail->setFrom('agenda@pilsac.com.pe', 'Sistema de Requerimientos');
+                    $mail->addAddress($correoJefe);
+                    $mail->Subject = $subject;
+                    $mail->Body = $message;
+                    $mail->send();
+                } else {
+                    mysqli_stmt_close($stmtJefe);
+                }
+            } else {
+                mysqli_stmt_close($stmtCargoSup);
+            }
+        }
+    } catch (MailException $e) {
+        throw new Exception('No se pudo enviar el correo de notificación: ' . $e->getMessage());
+    } 
+
+    if ($idPago == 1 || $idPago == 3) {
+        $idEstadoTransaccion = 2;
+    } else {
+        $idEstadoTransaccion = ($idCliente == 1) ? 2 : 1;
+    }
+
+    $aceptado = 1;
+    $idCargoUsuario = isset($_SESSION['idCargo']) ? (int)$_SESSION['idCargo'] : 0;
+    if ($idCargoUsuario > 0) {
+        $stmtCheck = mysqli_prepare($con, "SELECT idCargoSup FROM cargo_jefe WHERE idCargoInf = ? LIMIT 1");
+        if ($stmtCheck) {
+            mysqli_stmt_bind_param($stmtCheck, 'i', $idCargoUsuario);
+            mysqli_stmt_execute($stmtCheck);
+            mysqli_stmt_bind_result($stmtCheck, $tmpSup);
+            if (mysqli_stmt_fetch($stmtCheck)) {
+                $aceptado = 0;
+            }
+            mysqli_stmt_close($stmtCheck);
+        }
+    }
+
+    $stmtReq = mysqli_prepare($con, "INSERT INTO requerimiento (idCliente, idPago, idEstado, idEstadoTransaccion, idUsuario, fechaRegistro, aceptado) VALUES (?, ?, '1', ?, ?, ?, ?)");
+    mysqli_stmt_bind_param($stmtReq, "iiiisi", $idCliente, $idPago, $idEstadoTransaccion, $usuario_cliente, $fechaRegistro, $aceptado);
+    mysqli_stmt_execute($stmtReq);
+    $last_id = mysqli_insert_id($con);
+    if ($stmtReq) {
+        mysqli_stmt_close($stmtReq);
+    }
+
+    $comprobantesInsertados = 0;
+
+    foreach ($voucherNames as $index => $archivo3) {
+        $fuente3 = isset($voucherTmpNames[$index]) ? $voucherTmpNames[$index] : null;
+
+        if (empty($archivo3) || empty($fuente3) || !is_uploaded_file($fuente3)) {
+            continue;
+        }
+
+        $extension3 = strtolower(pathinfo($archivo3, PATHINFO_EXTENSION));
+        $contenido3 = file_get_contents($fuente3);
+
+        if ($contenido3 === false) {
+            continue;
+        }
+
+        $stmtComprobante = mysqli_prepare($con, "INSERT INTO requerimiento_comprobante (idRequerimiento, doc, doc_extension, doc_nombre) VALUES (?, ?, ?, ?)");
+        $blobData = '';
+        mysqli_stmt_bind_param($stmtComprobante, "ibss", $last_id, $blobData, $extension3, $archivo3);
+        mysqli_stmt_send_long_data($stmtComprobante, 1, $contenido3);
+        mysqli_stmt_execute($stmtComprobante);
+        if ($stmtComprobante) {
+            mysqli_stmt_close($stmtComprobante);
+        }
+        $comprobantesInsertados++;
+    }
+
+    $fileName = $_FILES['import_file']['name'];
+    $file_ext = strtolower(pathinfo($fileName, PATHINFO_EXTENSION));
+    $allowed_ext = ['csv', 'xls', 'xlsx'];
+
+    if (!in_array($file_ext, $allowed_ext, true)) {
+        throw new Exception('El archivo de requerimiento debe ser csv, xls o xlsx.');
+    }
+
+    if ($file_ext === 'xlsx' && !class_exists('ZipArchive')) {
+        throw new Exception('Tu entorno PHP no tiene habilitada la extensión ZIP (ZipArchive). Habilita php_zip en XAMPP.');
+    }
+
+    $inputFileNamePath = $_FILES['import_file']['tmp_name'];
+    $spreadsheet = IOFactory::load($inputFileNamePath);
+    $hojaactual = $spreadsheet->getSheet(0);
+    $numerofilas = $hojaactual->getHighestDataRow();
+
+    $stmtPersona = mysqli_prepare($con, "INSERT INTO persona (apellidoPaterno, apellidoMaterno, nombre, tipoDocumento, numeroDocumento, estado_aprobacion, idRequerimiento) VALUES (?, ?, ?, ?, ?, ?, ?)");
+    $personasInsertadas = 0;
+    $personasEsperadas = 0;
+
+    for ($indicefila = 2; $indicefila <= $numerofilas; $indicefila++) {
+        $apellidoPaterno = strtoupper(trim((string)$hojaactual->getCellByColumnAndRow(1, $indicefila)->getFormattedValue()));
+        $apellidoMaterno = strtoupper(trim((string)$hojaactual->getCellByColumnAndRow(2, $indicefila)->getFormattedValue()));
+        $nombre = strtoupper(trim((string)$hojaactual->getCellByColumnAndRow(3, $indicefila)->getFormattedValue()));
+        $tipoDocumento = strtoupper(trim((string)$hojaactual->getCellByColumnAndRow(4, $indicefila)->getFormattedValue()));
+        $numeroDocumento = trim((string)$hojaactual->getCellByColumnAndRow(5, $indicefila)->getFormattedValue());
+        $numeroDocumento = preg_replace('/\s+/', '', $numeroDocumento);
+
+        if ($numeroDocumento === '') {
+            continue;
+        }
+
+        $personasEsperadas++;
+
+        mysqli_stmt_bind_param($stmtPersona, "sssssis", $apellidoPaterno, $apellidoMaterno, $nombre, $tipoDocumento, $numeroDocumento, $estadoAprobacion, $last_id);
+        mysqli_stmt_execute($stmtPersona);
+        $personasInsertadas++;
+    }
+
+    if (in_array($idPago, [1, 3], true)) {
+        $comprobantesRecibidos = count($voucherNames);
+        if ($personasEsperadas !== $comprobantesRecibidos) {
+            throw new Exception("Para el método de pago seleccionado se requieren exactamente $personasEsperadas comprobante(s). Se recibieron $comprobantesRecibidos.");
+        }
+    }
+
+    if ($stmtPersona) {
+        mysqli_stmt_close($stmtPersona);
+    }
+    mysqli_commit($con);
+
+    echo json_encode([
+        'status' => 200,
+        'message' => 'Flujo completado correctamente.',
+        'idRequerimiento' => $last_id,
+        'personasInsertadas' => $personasInsertadas,
+        'comprobantesInsertados' => $comprobantesInsertados
+    ]);
+} catch (Throwable $e) {
+    mysqli_rollback($con);
+    echo json_encode([
+        'status' => 500,
+        'message' => 'Error al procesar la solicitud.',
+        'error' => $e->getMessage()
+    ]);
+}
+mysqli_close($con);
+
+
+
+
+
+
+
+
+<?php
+session_start();
+require 'conexion.php';
+require '../1_Presentacion/vendor/autoload.php';
+
+use PHPMailer\PHPMailer\PHPMailer;
+use PHPMailer\PHPMailer\Exception as MailException;
+
+header('Content-Type: application/json; charset=utf-8');
+
+if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
+    echo json_encode(['status' => 405, 'message' => 'Método no permitido']);
+    exit;
+}
+
+if (!isset($_SESSION['idUsuario'])) {
+    echo json_encode(['status' => 401, 'message' => 'Sesión expirada']);
+    exit;
+}
+
+$idRequerimiento = isset($_POST['idRequerimiento']) ? (int)$_POST['idRequerimiento'] : 0;
+if ($idRequerimiento <= 0) {
+    $idRequerimiento = isset($_POST['idReq']) ? (int)$_POST['idReq'] : 0;
+}
+$personas = isset($_POST['personas']) && is_array($_POST['personas']) ? $_POST['personas'] : [];
+
+if ($idRequerimiento <= 0) {
+    echo json_encode(['status' => 422, 'message' => 'Datos inválidos']);
+    exit;
+}
+
+$ids = array_map('intval', $personas);
+$hayPersonasSeleccionadas = !empty($ids);
+
+$rutaFirma = __DIR__ . '/../1_Presentacion/img/FirmaDigital.jpg';
+if (!file_exists($rutaFirma)) {
+    $rutaFirma = 'img/FirmaDigital.jpg';
+}
+
+mysqli_begin_transaction($con);
+$tmpFiles = [];
+
+try {
+    if ($hayPersonasSeleccionadas) {
+        $placeholders = implode(',', array_fill(0, count($ids), '?'));
+        $types = str_repeat('i', count($ids)) . 'i';
+        $sql = "UPDATE persona SET estado_aprobacion = 1 WHERE idPersona IN ($placeholders) AND idRequerimiento = ?";
+        $stmt = mysqli_prepare($con, $sql);
+        if (!$stmt) throw new Exception(mysqli_error($con));
+
+        $params = array_merge($ids, [$idRequerimiento]);
+        $refs = [];
+        foreach ($params as $k => $v) $refs[$k] = & $params[$k];
+        array_unshift($refs, $types);
+        call_user_func_array('mysqli_stmt_bind_param', array_merge([$stmt], $refs));
+        mysqli_stmt_execute($stmt);
+        $affected = mysqli_stmt_affected_rows($stmt);
+        mysqli_stmt_close($stmt);
+    } else {
+        $affected = 0;
+    }
+
+    $stmtReq = mysqli_prepare($con, "UPDATE requerimiento SET aceptado = 1 WHERE idRequerimiento = ?");
+    if (!$stmtReq) throw new Exception(mysqli_error($con));
+    mysqli_stmt_bind_param($stmtReq, 'i', $idRequerimiento);
+    mysqli_stmt_execute($stmtReq);
+    mysqli_stmt_close($stmtReq);
+
+    if ($hayPersonasSeleccionadas) {
+        $sqlInfo = "SELECT r.idRequerimiento, r.idPago, r.idCliente, c.nombre AS rq_cliente, u.correo AS correoUsuario, u.nombres AS nombresUsuario, u.idCargo AS idCargoUsuario
+                    FROM requerimiento r
+                    INNER JOIN cliente c ON c.idCliente = r.idCliente
+                    INNER JOIN usuario u ON u.idUsuario = r.idUsuario
+                    WHERE r.idRequerimiento = ? LIMIT 1";
+        $stmt2 = mysqli_prepare($con, $sqlInfo);
+        mysqli_stmt_bind_param($stmt2, 'i', $idRequerimiento);
+        mysqli_stmt_execute($stmt2);
+        $res2 = mysqli_stmt_get_result($stmt2);
+        $info = mysqli_fetch_assoc($res2);
+        mysqli_stmt_close($stmt2);
+
+        $rq_cliente = isset($info['rq_cliente']) ? $info['rq_cliente'] : '';
+        $correo_cliente = isset($_SESSION['correo']) ? trim((string)$_SESSION['correo']) : '';
+        $fecha = date('d-m-Y');
+
+        $correo_destino = isset($info['correoUsuario']) ? trim((string)$info['correoUsuario']) : '';
+        if ($correo_destino === '') {
+            $correo_destino = $correo_cliente;
+        }
+
+        if (!empty($correo_destino)) {
+            $subject = 'Solicitud de Antecedentes | ' . $rq_cliente . ' | ' . $fecha;
+            $message = "Estimado Cliente :<br> <br>
+            Recibimos correctamente la información para la gestión de investigaciones basicas y lo estamos procesando, en 24 horas le estaremos remitiendo los resultados.
+            <br> <br>
+            Att:
+            <br> <br>
+            <img src=\"cid:firma\" />";
+
+            $mail = new PHPMailer(true);
+            $mail->isHTML(true);
+            $mail->isSMTP();
+            $mail->Host       = 'mail.pilsac.com.pe';
+            $mail->SMTPAuth   = true;
+            $mail->Username   = 'agenda@pilsac.com.pe';
+            $mail->Password   = 'Gts10203040*';
+            $mail->SMTPSecure = PHPMailer::ENCRYPTION_SMTPS;
+            $mail->Port       = 465;
+            $mail->CharSet    = 'UTF-8';
+
+            if (file_exists($rutaFirma)) {
+                $mail->AddEmbeddedImage($rutaFirma, 'firma', 'FirmaDigital.jpg');
+            }
+
+            $mail->setFrom('agenda@pilsac.com.pe', 'Sistema de Requerimientos');
+            $mail->addAddress($correo_destino);
+            $mail->addCC('rperez@t-soluciona.com.pe');
+            $mail->addCC('cpalacios@t-soluciona.com.pe');
+            $mail->addBCC('ravila@grupot-soluciona.com.pe');
+            $mail->addBCC('soporteti@grupot-soluciona.com.pe');
+            $mail->addBCC('Sistemas1@grupot-soluciona.com.pe', 'Copia de Pruebas');
+            $mail->Subject = $subject;
+            $mail->Body = $message;
+            $mail->send();
+        }
+    } else {
+        $sqlInfo = "SELECT r.idRequerimiento, r.idPago, r.idCliente, c.nombre AS rq_cliente
+                    FROM requerimiento r
+                    INNER JOIN cliente c ON c.idCliente = r.idCliente
+                    WHERE r.idRequerimiento = ? LIMIT 1";
+        $stmtInfo = mysqli_prepare($con, $sqlInfo);
+        if ($stmtInfo) {
+            mysqli_stmt_bind_param($stmtInfo, 'i', $idRequerimiento);
+            mysqli_stmt_execute($stmtInfo);
+            $resInfo = mysqli_stmt_get_result($stmtInfo);
+            $infoJefe = mysqli_fetch_assoc($resInfo);
+            mysqli_stmt_close($stmtInfo);
+        }
+
+        $rq_cliente = isset($infoJefe['rq_cliente']) ? $infoJefe['rq_cliente'] : '';
+        $fecha = date('d-m-Y');
+
+        $idCargoUsuario = isset($_SESSION['idCargo']) ? (int)$_SESSION['idCargo'] : 0;
+        $stmtCargoSup = mysqli_prepare($con, "SELECT idCargoSup FROM cargo_jefe WHERE idCargoInf = ? LIMIT 1");
+        mysqli_stmt_bind_param($stmtCargoSup, 'i', $idCargoUsuario);
+        mysqli_stmt_execute($stmtCargoSup);
+        mysqli_stmt_bind_result($stmtCargoSup, $idCargoSuperior);
+
+        if (mysqli_stmt_fetch($stmtCargoSup)) {
+            mysqli_stmt_close($stmtCargoSup);
+
+            $stmtJefe = mysqli_prepare($con, "SELECT correo, nombres FROM usuario WHERE idCargo = ? AND idEstado = 1 LIMIT 1");
+            mysqli_stmt_bind_param($stmtJefe, 'i', $idCargoSuperior);
+            mysqli_stmt_execute($stmtJefe);
+            mysqli_stmt_bind_result($stmtJefe, $correoJefe, $nombresJefe);
+
+            if (mysqli_stmt_fetch($stmtJefe) && !empty($correoJefe)) {
+                mysqli_stmt_close($stmtJefe);
+
+                $subject = 'Antecedentes Pendientes de Visto Bueno | ' . $rq_cliente . ' | ' . $fecha;
+                $message = "Estimado $nombresJefe,<br> <br>
+                Se han recibido antecedentes para revisar y dar visto bueno.
+                <br><br>
+                Cliente: $rq_cliente
+                <br>
+                Favor revisar y aprobar cuando corresponda.
+                <br> <br>
+                Att:
+                <br> <br>
+                <img src=\"cid:firma\" />";
+
+                $mail = new PHPMailer(true);
+                $mail->isHTML(true);
+                $mail->isSMTP();
+                $mail->Host       = 'mail.pilsac.com.pe';
+                $mail->SMTPAuth   = true;
+                $mail->Username   = 'agenda@pilsac.com.pe';
+                $mail->Password   = 'Gts10203040*';
+                $mail->SMTPSecure = PHPMailer::ENCRYPTION_SMTPS;
+                $mail->Port       = 465;
+                $mail->CharSet    = 'UTF-8';
+
+                if (file_exists($rutaFirma)) {
+                    $mail->AddEmbeddedImage($rutaFirma, 'firma', 'FirmaDigital.jpg');
+                }
+
+                $mail->setFrom('agenda@pilsac.com.pe', 'Sistema de Requerimientos');
+                $mail->addAddress($correoJefe);
+
+                $stmtDocs = mysqli_prepare($con, "SELECT doc_nombre, doc_extension, doc FROM requerimiento_comprobante WHERE idRequerimiento = ? ORDER BY idRequerimientoComprobante ASC");
+                if ($stmtDocs) {
+                    mysqli_stmt_bind_param($stmtDocs, 'i', $idRequerimiento);
+                    mysqli_stmt_execute($stmtDocs);
+                    $resDocs = mysqli_stmt_get_result($stmtDocs);
+                    while ($doc = mysqli_fetch_assoc($resDocs)) {
+                        if (empty($doc['doc'])) {
+                            continue;
+                        }
+                        $tmpPath = tempnam(sys_get_temp_dir(), 'reqdoc_');
+                        if ($tmpPath !== false) {
+                            file_put_contents($tmpPath, $doc['doc']);
+                            $tmpFiles[] = $tmpPath;
+                            $nombreAdjunto = !empty($doc['doc_nombre']) ? $doc['doc_nombre'] : ('documento_' . count($tmpFiles) . '.' . (!empty($doc['doc_extension']) ? $doc['doc_extension'] : 'pdf'));
+                            $mail->addAttachment($tmpPath, $nombreAdjunto);
+                        }
+                    }
+                    mysqli_stmt_close($stmtDocs);
+                }
+
+                $mail->send();
+            } else {
+                if ($stmtJefe) mysqli_stmt_close($stmtJefe);
+            }
+        } else {
+            if ($stmtCargoSup) mysqli_stmt_close($stmtCargoSup);
+        }
+    }
+
+    foreach ($tmpFiles as $tmpFile) {
+        if (file_exists($tmpFile)) {
+            @unlink($tmpFile);
+        }
+    }
+
+    mysqli_commit($con);
+    echo json_encode(['status' => 200, 'message' => 'Requerimiento procesado', 'affected' => $affected]);
+} catch (Throwable $e) {
+    mysqli_rollback($con);
+    
+    foreach ($tmpFiles as $tmpFile) {
+        if (file_exists($tmpFile)) {
+            @unlink($tmpFile);
+        }
+    }
+
+    echo json_encode([
+        'status' => 500, 
+        'message' => 'Error al procesar la aprobación o el envío del correo', 
+        'error' => $e->getMessage()
+    ]);
+}
+?>
+
+
+
+
+
+
