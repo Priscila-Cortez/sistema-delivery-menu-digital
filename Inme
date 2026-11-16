@@ -1,0 +1,348 @@
+<?php
+session_start();
+require 'conexion.php';
+require '../1_Presentacion/vendor/autoload.php';
+
+use PHPMailer\PHPMailer\PHPMailer;
+use PHPMailer\PHPMailer\Exception as MailException;
+
+header('Content-Type: application/json; charset=utf-8');
+
+// 1. Validar método de solicitud
+if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
+    echo json_encode(['status' => 405, 'message' => 'Método no permitido']);
+    exit;
+}
+
+// 2. Validar sesión activa
+if (!isset($_SESSION['idUsuario'])) {
+    echo json_encode(['status' => 401, 'message' => 'Sesión expirada']);
+    exit;
+}
+
+// 3. Obtener y sanitizar parámetros enviados por POST
+$idRequerimiento = isset($_POST['idRequerimiento']) ? (int)$_POST['idRequerimiento'] : 0;
+if ($idRequerimiento <= 0) {
+    $idRequerimiento = isset($_POST['idReq']) ? (int)$_POST['idReq'] : 0;
+}
+$personas = isset($_POST['personas']) && is_array($_POST['personas']) ? $_POST['personas'] : [];
+
+if ($idRequerimiento <= 0) {
+    echo json_encode(['status' => 422, 'message' => 'ID de requerimiento inválido']);
+    exit;
+}
+
+$ids = array_map('intval', $personas);
+$hayPersonasSeleccionadas = !empty($ids);
+
+// 4. Iniciar transacción en la base de datos
+mysqli_begin_transaction($con);
+
+try {
+    $affected = 0;
+
+    // A. Si se seleccionaron personas, actualizamos su estado de aprobación a 1
+    if ($hayPersonasSeleccionadas) {
+        $placeholders = implode(',', array_fill(0, count($ids), '?'));
+        $types = str_repeat('i', count($ids)) . 'i';
+        $sqlPersona = "UPDATE persona SET estado_aprobacion = 1 WHERE idPersona IN ($placeholders) AND idRequerimiento = ?";
+        
+        $stmtPersona = mysqli_prepare($con, $sqlPersona);
+        if (!$stmtPersona) {
+            throw new Exception('Error al preparar consulta de personas: ' . mysqli_error($con));
+        }
+
+        $params = array_merge($ids, [$idRequerimiento]);
+        $refs = [];
+        foreach ($params as $k => $v) {
+            $refs[$k] = &$params[$k];
+        }
+        array_unshift($refs, $types);
+        
+        call_user_func_array('mysqli_stmt_bind_param', array_merge([$stmtPersona], $refs));
+        mysqli_stmt_execute($stmtPersona);
+        $affected = mysqli_stmt_affected_rows($stmtPersona);
+        mysqli_stmt_close($stmtPersona);
+    }
+
+    // B. Marcar el requerimiento como aceptado (aceptado = 1)
+    $stmtReq = mysqli_prepare($con, "UPDATE requerimiento SET aceptado = 1 WHERE idRequerimiento = ?");
+    if (!$stmtReq) {
+        throw new Exception('Error al preparar actualización del requerimiento: ' . mysqli_error($con));
+    }
+    mysqli_stmt_bind_param($stmtReq, 'i', $idRequerimiento);
+    mysqli_stmt_execute($stmtReq);
+    mysqli_stmt_close($stmtReq);
+
+    // C. Obtener información clave del requerimiento, cliente y usuario creador para el correo
+    $sqlInfo = "SELECT r.idRequerimiento, r.idPago, r.idCliente, c.nombre AS rq_cliente, 
+                       u.correo AS correoUsuario, u.nombres AS nombresUsuario, u.idCargo AS idCargoUsuario
+                FROM requerimiento r
+                INNER JOIN cliente c ON c.idCliente = r.idCliente
+                INNER JOIN usuario u ON u.idUsuario = r.idUsuario
+                WHERE r.idRequerimiento = ? LIMIT 1";
+                
+    $stmtInfo = mysqli_prepare($con, $sqlInfo);
+    if (!$stmtInfo) {
+        throw new Exception('Error al preparar información del requerimiento: ' . mysqli_error($con));
+    }
+    mysqli_stmt_bind_param($stmtInfo, 'i', $idRequerimiento);
+    mysqli_stmt_execute($stmtInfo);
+    $resInfo = mysqli_stmt_get_result($stmtInfo);
+    $info = mysqli_fetch_assoc($resInfo);
+    mysqli_stmt_close($stmtInfo);
+
+    if (!$info) {
+        throw new Exception('No se encontró información para el requerimiento especificado.');
+    }
+
+    $rq_cliente = $info['rq_cliente'];
+    $correo_destino = trim((string)$info['correoUsuario']);
+    $nombres_destino = trim((string)$info['nombresUsuario']);
+    $fecha = date('d-m-Y');
+
+    // D. Configuración y Envío de Correo mediante PHPMailer
+    $rutaFirma = __DIR__ . '/img/FirmaDigital.jpg';
+    if (!file_exists($rutaFirma)) {
+        $rutaFirma = 'img/FirmaDigital.jpg';
+    }
+
+    $mail = new PHPMailer(true);
+    $mail->isHTML(true);
+    $mail->isSMTP();
+    $mail->Host       = 'mail.pilsac.com.pe'; 
+    $mail->SMTPAuth   = true;
+    $mail->Username   = 'agenda@pilsac.com.pe';
+    $mail->Password   = 'Gts10203040*';
+    $mail->SMTPSecure = PHPMailer::ENCRYPTION_SMTPS;
+    $mail->Port       = 465;
+    $mail->CharSet    = 'UTF-8';
+
+    // Imagen adjunta de firma
+    if (file_exists($rutaFirma)) {
+        $mail->AddEmbeddedImage($rutaFirma, 'firma', 'FirmaDigital.jpg');
+    }
+
+    $subject = 'Solicitud de Antecedentes Aprobada | ' . $rq_cliente . ' | ' . $fecha;
+    $message = "Estimado/a " . (!empty($nombres_destino) ? $nombres_destino : 'Cliente') . " :<br><br>
+    Su requerimiento para el cliente <b>$rq_cliente</b> ha sido visado y aprobado correctamente. Estamos procesando la gestión de investigaciones básicas y en 24 horas le estaremos remitiendo los resultados.
+    <br><br>
+    Att:<br><br>
+    <img src=\"cid:firma\" />";
+
+    $mail->setFrom('agenda@pilsac.com.pe', 'Sistema de Requerimientos');
+    
+    if (!empty($correo_destino)) {
+        $mail->addAddress($correo_destino);
+    } else {
+        throw new Exception('El usuario creador del requerimiento no cuenta con un correo válido.');
+    }
+
+    // Copias institucionales de control
+    $mail->addCC('priscilacortez353@gmail.com');
+    $mail->addCC('rperez@t-soluciona.com.pe');
+    $mail->addCC('cpalacios@t-soluciona.com.pe');
+    $mail->addBCC('ravila@grupot-soluciona.com.pe');
+    $mail->addBCC('Sistemas1@grupot-soluciona.com.pe', 'Copia de Pruebas');
+
+    $mail->Subject = $subject;
+    $mail->Body    = $message;
+    $mail->send();
+
+    // Confirmar transacción si todo salió bien
+    mysqli_commit($con);
+
+    echo json_encode([
+        'status' => 200, 
+        'message' => 'Requerimiento aprobado y correo enviado correctamente', 
+        'affected' => $affected
+    ]);
+
+} catch (Throwable $e) {
+    // Revertir cambios en caso de error
+    mysqli_rollback($con);
+    echo json_encode([
+        'status' => 500, 
+        'message' => 'Error al aprobar el requerimiento', 
+        'error' => $e->getMessage()
+    ]);
+}
+mysqli_close($con);
+
+
+
+
+
+
+
+<?php
+session_start();
+require 'conexion.php';
+require '../1_Presentacion/vendor/autoload.php';
+
+use PHPMailer\PHPMailer\PHPMailer;
+use PHPMailer\PHPMailer\Exception as MailException;
+
+header('Content-Type: application/json; charset=utf-8');
+
+// 1. Validar método de solicitud
+if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
+    echo json_encode(['status' => 405, 'message' => 'Método no permitido']);
+    exit;
+}
+
+// 2. Validar sesión activa
+if (!isset($_SESSION['idUsuario'])) {
+    echo json_encode(['status' => 401, 'message' => 'Sesión expirada']);
+    exit;
+}
+
+// 3. Obtener y sanitizar parámetros enviados por POST
+$idRequerimiento = isset($_POST['idRequerimiento']) ? (int)$_POST['idRequerimiento'] : 0;
+if ($idRequerimiento <= 0) {
+    $idRequerimiento = isset($_POST['idReq']) ? (int)$_POST['idReq'] : 0;
+}
+$personas = isset($_POST['personas']) && is_array($_POST['personas']) ? $_POST['personas'] : [];
+
+if ($idRequerimiento <= 0) {
+    echo json_encode(['status' => 422, 'message' => 'ID de requerimiento inválido']);
+    exit;
+}
+
+$ids = array_map('intval', $personas);
+$hayPersonasSeleccionadas = !empty($ids);
+
+// 4. Iniciar transacción en la base de datos
+mysqli_begin_transaction($con);
+
+try {
+    $affected = 0;
+
+    // A. Si se seleccionaron personas, actualizamos su estado de aprobación a 1
+    if ($hayPersonasSeleccionadas) {
+        $placeholders = implode(',', array_fill(0, count($ids), '?'));
+        $types = str_repeat('i', count($ids)) . 'i';
+        $sqlPersona = "UPDATE persona SET estado_aprobacion = 1 WHERE idPersona IN ($placeholders) AND idRequerimiento = ?";
+        
+        $stmtPersona = mysqli_prepare($con, $sqlPersona);
+        if (!$stmtPersona) {
+            throw new Exception('Error al preparar consulta de personas: ' . mysqli_error($con));
+        }
+
+        $params = array_merge($ids, [$idRequerimiento]);
+        $refs = [];
+        foreach ($params as $k => $v) {
+            $refs[$k] = &$params[$k];
+        }
+        array_unshift($refs, $types);
+        
+        call_user_func_array('mysqli_stmt_bind_param', array_merge([$stmtPersona], $refs));
+        mysqli_stmt_execute($stmtPersona);
+        $affected = mysqli_stmt_affected_rows($stmtPersona);
+        mysqli_stmt_close($stmtPersona);
+    }
+
+    // B. Marcar el requerimiento como aceptado (aceptado = 1)
+    $stmtReq = mysqli_prepare($con, "UPDATE requerimiento SET aceptado = 1 WHERE idRequerimiento = ?");
+    if (!$stmtReq) {
+        throw new Exception('Error al preparar actualización del requerimiento: ' . mysqli_error($con));
+    }
+    mysqli_stmt_bind_param($stmtReq, 'i', $idRequerimiento);
+    mysqli_stmt_execute($stmtReq);
+    mysqli_stmt_close($stmtReq);
+
+    // C. Obtener información clave del requerimiento, cliente y usuario creador para el correo
+    $sqlInfo = "SELECT r.idRequerimiento, r.idPago, r.idCliente, c.nombre AS rq_cliente, 
+                       u.correo AS correoUsuario, u.nombres AS nombresUsuario, u.idCargo AS idCargoUsuario
+                FROM requerimiento r
+                INNER JOIN cliente c ON c.idCliente = r.idCliente
+                INNER JOIN usuario u ON u.idUsuario = r.idUsuario
+                WHERE r.idRequerimiento = ? LIMIT 1";
+                
+    $stmtInfo = mysqli_prepare($con, $sqlInfo);
+    if (!$stmtInfo) {
+        throw new Exception('Error al preparar información del requerimiento: ' . mysqli_error($con));
+    }
+    mysqli_stmt_bind_param($stmtInfo, 'i', $idRequerimiento);
+    mysqli_stmt_execute($stmtInfo);
+    $resInfo = mysqli_stmt_get_result($stmtInfo);
+    $info = mysqli_fetch_assoc($resInfo);
+    mysqli_stmt_close($stmtInfo);
+
+    if (!$info) {
+        throw new Exception('No se encontró información para el requerimiento especificado.');
+    }
+
+    $rq_cliente = $info['rq_cliente'];
+    $correo_destino = trim((string)$info['correoUsuario']);
+    $nombres_destino = trim((string)$info['nombresUsuario']);
+    $fecha = date('d-m-Y');
+
+    // D. Configuración y Envío de Correo mediante PHPMailer
+    $rutaFirma = __DIR__ . '/img/FirmaDigital.jpg';
+    if (!file_exists($rutaFirma)) {
+        $rutaFirma = 'img/FirmaDigital.jpg';
+    }
+
+    $mail = new PHPMailer(true);
+    $mail->isHTML(true);
+    $mail->isSMTP();
+    // Ajusta los datos del servidor SMTP de acuerdo a la configuración segura que usas en importarexcel.php
+    $mail->Host       = 'mail.pilsac.com.pe'; 
+    $mail->SMTPAuth   = true;
+    $mail->Username   = 'agenda@pilsac.com.pe';
+    $mail->Password   = 'Gts10203040*';
+    $mail->SMTPSecure = PHPMailer::ENCRYPTION_SMTPS;
+    $mail->Port       = 465;
+    $mail->CharSet    = 'UTF-8';
+
+    // Imagen adjunta de firma
+    if (file_exists($rutaFirma)) {
+        $mail->AddEmbeddedImage($rutaFirma, 'firma', 'FirmaDigital.jpg');
+    }
+
+    $subject = 'Solicitud de Antecedentes Aprobada | ' . $rq_cliente . ' | ' . $fecha;
+    $message = "Estimado/a " . (!empty($nombres_destino) ? $nombres_destino : 'Cliente') . " :<br><br>
+    Su requerimiento para el cliente <b>$rq_cliente</b> ha sido visado y aprobado correctamente. Estamos procesando la gestión de investigaciones básicas y en 24 horas le estaremos remitiendo los resultados.
+    <br><br>
+    Att:<br><br>
+    <img src=\"cid:firma\" />";
+
+    $mail->setFrom('agenda@pilsac.com.pe', 'Sistema de Requerimientos');
+    
+    if (!empty($correo_destino)) {
+        $mail->addAddress($correo_destino);
+    } else {
+        throw new Exception('El usuario creador del requerimiento no cuenta con un correo válido.');
+    }
+
+    // Copias institucionales de control
+    $mail->addCC('priscilacortez353@gmail.com');
+    $mail->addCC('rperez@t-soluciona.com.pe');
+    $mail->addCC('cpalacios@t-soluciona.com.pe');
+    $mail->addBCC('ravila@grupot-soluciona.com.pe');
+    $mail->addBCC('Sistemas1@grupot-soluciona.com.pe', 'Copia de Pruebas');
+
+    $mail->Subject = $subject;
+    $mail->Body    = $message;
+    $mail->send();
+
+    // Confirmar transacción si todo salió bien
+    mysqli_commit($con);
+
+    echo json_encode([
+        'status' => 200, 
+        'message' => 'Requerimiento aprobado y correo enviado correctamente', 
+        'affected' => $affected
+    ]);
+
+} catch (Throwable $e) {
+    // Revertir cambios en caso de error
+    mysqli_rollback($con);
+    echo json_encode([
+        'status' => 500, 
+        'message' => 'Error al aprobar el requerimiento', 
+        'error' => $e->getMessage()
+    ]);
+}
+mysqli_close($con);
