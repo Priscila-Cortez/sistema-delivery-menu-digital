@@ -1,0 +1,203 @@
+<?php
+session_start();
+require 'conexion.php';
+require '../1_Presentacion/vendor/autoload.php';
+
+use PHPMailer\PHPMailer\PHPMailer;
+use PHPMailer\PHPMailer\Exception as MailException;
+
+header('Content-Type: application/json; charset=utf-8');
+
+if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
+    echo json_encode(['status' => 405, 'message' => 'Método no permitido']);
+    exit;
+}
+
+if (!isset($_SESSION['idUsuario'])) {
+    echo json_encode(['status' => 401, 'message' => 'Sesión expirada']);
+    exit;
+}
+
+$idRequerimiento = isset($_POST['idRequerimiento']) ? (int)$_POST['idRequerimiento'] : 0;
+if ($idRequerimiento <= 0) {
+    $idRequerimiento = isset($_POST['idReq']) ? (int)$_POST['idReq'] : 0;
+}
+$personas = isset($_POST['personas']) && is_array($_POST['personas']) ? $_POST['personas'] : [];
+
+if ($idRequerimiento <= 0) {
+    echo json_encode(['status' => 422, 'message' => 'ID de requerimiento inválido']);
+    exit;
+}
+
+$ids = array_map('intval', $personas);
+$hayPersonasSeleccionadas = !empty($ids);
+
+mysqli_begin_transaction($con);
+
+try {
+    $affected = 0;
+
+    if ($hayPersonasSeleccionadas) {
+        $placeholders = implode(',', array_fill(0, count($ids), '?'));
+        $types = str_repeat('i', count($ids)) . 'i';
+        $sqlPersona = "UPDATE persona SET estado_aprobacion = 1 WHERE idPersona IN ($placeholders) AND idRequerimiento = ?";
+        
+        $stmtPersona = mysqli_prepare($con, $sqlPersona);
+        if (!$stmtPersona) throw new Exception('Error al preparar personas: ' . mysqli_error($con));
+
+        $params = array_merge($ids, [$idRequerimiento]);
+        $refs = [];
+        foreach ($params as $k => $v) $refs[$k] = &$params[$k];
+        array_unshift($refs, $types);
+        
+        call_user_func_array('mysqli_stmt_bind_param', array_merge([$stmtPersona], $refs));
+        mysqli_stmt_execute($stmtPersona);
+        $affected = mysqli_stmt_affected_rows($stmtPersona);
+        mysqli_stmt_close($stmtPersona);
+    }
+
+    $stmtReq = mysqli_prepare($con, "UPDATE requerimiento SET aceptado = 1 WHERE idRequerimiento = ?");
+    if (!$stmtReq) throw new Exception('Error al preparar requerimiento: ' . mysqli_error($con));
+    mysqli_stmt_bind_param($stmtReq, 'i', $idRequerimiento);
+    mysqli_stmt_execute($stmtReq);
+    mysqli_stmt_close($stmtReq);
+
+    $sqlInfo = "SELECT r.idRequerimiento, r.idPago, r.idCliente, c.nombre AS rq_cliente, 
+                       u.correo AS correoUsuario, u.nombres AS nombresUsuario
+                FROM requerimiento r
+                INNER JOIN cliente c ON c.idCliente = r.idCliente
+                INNER JOIN usuario u ON u.idUsuario = r.idUsuario
+                WHERE r.idRequerimiento = ? LIMIT 1";
+                
+    $stmtInfo = mysqli_prepare($con, $sqlInfo);
+    mysqli_stmt_bind_param($stmtInfo, 'i', $idRequerimiento);
+    mysqli_stmt_execute($stmtInfo);
+    $resInfo = mysqli_stmt_get_result($stmtInfo);
+    $info = mysqli_fetch_assoc($resInfo);
+    mysqli_stmt_close($stmtInfo);
+
+    if ($info) {
+        $rq_cliente = $info['rq_cliente'];
+        $correo_destino = trim((string)$info['correoUsuario']);
+        $nombres_destino = trim((string)$info['nombresUsuario']);
+        $fecha = date('d-m-Y');
+
+        $tmpFiles = [];
+
+        try {
+            $rutaFirma = __DIR__ . '/img/FirmaDigital.jpg';
+            if (!file_exists($rutaFirma)) {
+                $rutaFirma = '../1_Presentacion/img/FirmaDigital.jpg';
+            }
+
+            $mail = new PHPMailer(true);
+            $mail->isHTML(true);
+            $mail->isSMTP();
+            $mail->Host       = 'mail.pilsac.com.pe'; 
+            $mail->SMTPAuth   = true;
+            $mail->Username   = 'agenda@pilsac.com.pe';
+            $mail->Password   = 'Gts10203040*';
+            $mail->SMTPSecure = PHPMailer::ENCRYPTION_SMTPS;
+            $mail->Port       = 465;
+            $mail->CharSet    = 'UTF-8';
+
+            if (file_exists($rutaFirma)) {
+                $mail->AddEmbeddedImage($rutaFirma, 'firma', 'FirmaDigital.jpg');
+            }
+
+            $subject = 'Solicitud de Antecedentes Aprobada | ' . $rq_cliente . ' | ' . $fecha;
+            $message = "Estimado/a " . (!empty($nombres_destino) ? $nombres_destino : 'Cliente') . " :<br><br>
+            Su requerimiento para el cliente <b>$rq_cliente</b> ha sido visado y aprobado correctamente. Adjuntamos los comprobantes de pago y archivos correspondientes. Estamos procesando la gestión de investigaciones básicas y en 24 horas le estaremos remitiendo los resultados.
+            <br><br>
+            Att:<br><br>
+            <img src=\"cid:firma\" />";
+
+            $mail->setFrom('agenda@pilsac.com.pe', 'SISTEMA DONNA');
+            
+            if (!empty($correo_destino)) {
+                $mail->addAddress($correo_destino);
+            }
+
+            $mail->addCC('priscilacortez353@gmail.com');
+            $mail->addCC('rperez@t-soluciona.com.pe');
+            $mail->addCC('cpalacios@t-soluciona.com.pe');
+            $mail->addBCC('ravila@grupot-soluciona.com.pe');
+            $mail->addBCC('Sistemas1@grupot-soluciona.com.pe', 'Copia de Pruebas');
+
+            $stmtDocs = mysqli_prepare($con, "SELECT doc_nombre, doc_extension, doc FROM requerimiento_comprobante WHERE idRequerimiento = ? ORDER BY idRequerimientoComprobante ASC");
+            if ($stmtDocs) {
+                mysqli_stmt_bind_param($stmtDocs, 'i', $idRequerimiento);
+                mysqli_stmt_execute($stmtDocs);
+                $resDocs = mysqli_stmt_get_result($stmtDocs);
+                while ($doc = mysqli_fetch_assoc($resDocs)) {
+                    if (empty($doc['doc'])) {
+                        continue;
+                    }
+                    $tmpPath = tempnam(sys_get_temp_dir(), 'reqdoc_');
+                    if ($tmpPath !== false) {
+                        file_put_contents($tmpPath, $doc['doc']);
+                        $tmpFiles[] = $tmpPath;
+                        $nombreAdjunto = !empty($doc['doc_nombre']) ? $doc['doc_nombre'] : ('comprobante_' . count($tmpFiles) . '.' . (!empty($doc['doc_extension']) ? $doc['doc_extension'] : 'pdf'));
+                        $mail->addAttachment($tmpPath, $nombreAdjunto);
+                    }
+                }
+                mysqli_stmt_close($stmtDocs);
+            }
+
+            $stmtExcel = mysqli_prepare($con, "SELECT archivo_nombre, archivo FROM requerimiento_archivo WHERE idRequerimiento = ? LIMIT 1");
+            if ($stmtExcel) {
+                mysqli_stmt_bind_param($stmtExcel, 'i', $idRequerimiento);
+                mysqli_stmt_execute($stmtExcel);
+                $resExcel = mysqli_stmt_get_result($stmtExcel);
+                if ($excelData = mysqli_fetch_assoc($resExcel)) {
+                    if (!empty($excelData['archivo'])) {
+                        $tmpExcelPath = tempnam(sys_get_temp_dir(), 'reqexcel_');
+                        if ($tmpExcelPath !== false) {
+                            file_put_contents($tmpExcelPath, $excelData['archivo']);
+                            $tmpFiles[] = $tmpExcelPath;
+                            $nombreExcel = !empty($excelData['archivo_nombre']) ? $excelData['archivo_nombre'] : 'requerimiento_personas.xlsx';
+                            $mail->addAttachment($tmpExcelPath, $nombreExcel);
+                        }
+                    }
+                }
+                mysqli_stmt_close($stmtExcel);
+            }
+
+            $mail->Subject = $subject;
+            $mail->Body    = $message;
+            $mail->send();
+
+            foreach ($tmpFiles as $tmpFile) {
+                if (file_exists($tmpFile)) {
+                    @unlink($tmpFile);
+                }
+            }
+
+            error_log("CORREO CON ARCHIVOS ENVIADO EXITOSAMENTE a: " . $correo_destino . "\n", 3, __DIR__ . '/correo_debug.log');
+        } catch (Throwable $mailEx) {
+            foreach ($tmpFiles as $tmpFile) {
+                if (file_exists($tmpFile)) {
+                    @unlink($tmpFile);
+                }
+            }
+            error_log("ERROR DE CORREO CON ARCHIVOS: " . $mailEx->getMessage() . "\n", 3, __DIR__ . '/correo_debug.log');
+        }
+    }
+
+    mysqli_commit($con);
+
+    echo json_encode([
+        'status' => 200, 
+        'message' => 'Requerimiento aprobado y archivos adjuntos enviados correctamente', 
+        'affected' => $affected
+    ]);
+
+} catch (Throwable $e) {
+    mysqli_rollback($con);
+    echo json_encode([
+        'status' => 500, 
+        'message' => 'Error al aprobar el requerimiento', 
+        'error' => $e->getMessage()
+    ]);
+}
+mysqli_close($con);
