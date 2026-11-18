@@ -1,0 +1,178 @@
+
+dwscso
+
+<!-- Selección de Tipo de Ausencia y Fechas con cálculo en línea -->
+<div class="form-group row mt-3 align-items-center">
+    <label class="col-md-2 col-form-label text-right">Absentismo por salud:</label>
+    <div class="col-md-2">
+        <select class="form-control" id="tipoAusencia" name="tipoAusencia" required>
+            <option value="" selected disabled>Seleccionar...</option>
+            <option value="DM">Descanso Médico</option>
+            <option value="SUB">Subsidio por Incapacidad</option>
+            <option value="SUBM">Subsidio por Maternidad</option>
+        </select>
+    </div>
+
+    <label class="col-md-1 col-form-label text-right">F. Inicio:</label>
+    <div class="col-md-2">
+        <input type="date" class="form-control" id="fechaInicio" name="fechaInicio" min="2010-01-01" required>
+    </div>
+
+    <label class="col-md-1 col-form-label text-right">F. Fin:</label>
+    <div class="col-md-2">
+        <input type="date" class="form-control" id="fechaFin" name="fechaFin" min="2010-01-01" required>
+    </div>
+
+    <!-- Indicador visual del total de días en tiempo real (Sin modales) -->
+    <div class="col-md-2 text-center">
+        <span class="badge bg-primary px-3 py-2 fs-6 w-100 shadow-sm" style="font-weight: 600;">
+            Total: <span id="textoTotalDias">0</span> días
+        </span>
+        <!-- Input oculto por si necesitas enviarlo por POST al guardar -->
+        <input type="hidden" id="inputTotalDiasOculto" name="total_dias_calculado" value="0">
+    </div>
+</div>
+
+
+
+<script>
+    // Función para calcular los días en tiempo real
+    function calcularDiasEnLinea() {
+        let fInicio = $("#fechaInicio").val();
+        let fFin = $("#fechaFin").val();
+
+        if (fInicio && fFin) {
+            let fecha1 = new Date(fInicio);
+            let fecha2 = new Date(fFin);
+
+            // Validar que la fecha de fin no sea anterior a la de inicio
+            if (fecha2 >= fecha1) {
+                let diferenciaTiempo = fecha2 - fecha1;
+                // Se suma 1 para incluir el día de inicio
+                let diasTotales = (diferenciaTiempo / (1000 * 60 * 60 * 24)) + 1;
+                
+                $("#textoTotalDias").text(diasTotales);
+                $("#inputTotalDiasOculto").val(diasTotales);
+            } else {
+                $("#textoTotalDias").text("0");
+                $("#inputTotalDiasOculto").val("0");
+            }
+        } else {
+            $("#textoTotalDias").text("0");
+            $("#inputTotalDiasOculto").val("0");
+        }
+    }
+
+    // Escuchar cuando el usuario cambie cualquiera de las dos fechas
+    $("#fechaInicio, #fechaFin").on("change", function() {
+        calcularDiasEnLinea();
+    });
+</script>
+
+
+
+
+
+opcimol
+<!-- Selección de Tipo de Ausencia y Fechas -->
+<div class="form-group row mt-3 align-items-center">
+    <label class="col-md-2 col-form-label text-right">Absentismo por salud:</label>
+    <div class="col-md-2">
+        <select class="form-control" id="tipoAusencia" name="tipoAusencia" required>
+            <option value="" selected disabled>Seleccionar...</option>
+            <option value="DM">Descanso Médico</option>
+            <option value="SUB">Subsidio por Incapacidad</option>
+            <option value="SUBM">Subsidio por Maternidad</option>
+        </select>
+    </div>
+
+    <label class="col-md-1 col-form-label text-right">F. Inicio:</label>
+    <div class="col-md-2">
+        <input type="date" class="form-control" id="fechaInicio" name="fechaInicio" min="2010-01-01" required>
+    </div>
+
+    <label class="col-md-1 col-form-label text-right">F. Fin:</label>
+    <div class="col-md-2">
+        <input type="date" class="form-control" id="fechaFin" name="fechaFin" min="2010-01-01" required>
+    </div>
+
+    <!-- NUEVO: Campo visual del total de días al lado de las fechas -->
+    <div class="col-md-2">
+        <div class="input-group">
+            <span class="input-group-text bg-info text-white fw-bold">Días</span>
+            <input type="text" id="totalDiasCalculados" class="form-control fw-bold text-center text-primary bg-light" value="0" readonly>
+        </div>
+    </div>
+</div>
+
+
+
+
+<script>
+    // Función para calcular los días dinámicamente entre las fechas seleccionadas
+    function calcularTotalDias() {
+        let fInicio = $("#fechaInicio").val();
+        let fFin = $("#fechaFin").val();
+
+        if (fInicio && fFin) {
+            let fecha1 = new Date(fInicio);
+            let fecha2 = new Date(fFin);
+
+            // Validar que la fecha de fin no sea menor a la de inicio
+            if (fecha2 >= fecha1) {
+                // Diferencia en milisegundos convertida a días + 1 (para incluir el primer día)
+                let diferenciaTiempo = fecha2 - fecha1;
+                let diasTotales = (diferenciaTiempo / (1000 * 60 * 60 * 24)) + 1;
+                $("#totalDiasCalculados").val(diasTotales);
+            } else {
+                $("#totalDiasCalculados").val(0);
+            }
+        } else {
+            $("#totalDiasCalculados").val(0);
+        }
+    }
+
+    // Escuchar cambios en los inputs de fecha
+    $("#fechaInicio, #fechaFin").on("change", function() {
+        calcularTotalDias();
+    });
+</script>
+
+
+
+
+opcinql
+<div class="col-md-2">
+    <button type="button" class="btn btn-outline-info w-100 fw-bold" id="btnVerModalDias">
+        <i class="fas fa-calculator me-1"></i> Días: <span id="badgeDiasCount">0</span>
+    </button>
+</div>
+
+
+
+<div class="modal fade" id="modalDetalleDias" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog modal-sm modal-dialog-centered">
+        <div class="modal-content border-0 shadow rounded-4">
+            <div class="modal-header bg-info text-white py-2">
+                <h6 class="modal-title fw-bold">Cálculo de Días</h6>
+                <button type="button" class="btn-close btn-close-white shadow-none" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <div class="modal-body text-center py-4">
+                <p class="text-muted small mb-2">Total de días computados para este periodo:</p>
+                <h2 id="modalDiasResultado" class="text-primary fw-bold mb-0">0 días</h2>
+            </div>
+        </div>
+    </div>
+</div>
+
+
+
+
+
+// Abrir el modal al hacer clic en el botón de días
+$("#btnVerModalDias").on("click", function() {
+    let dias = $("#totalDiasCalculados").val() || 0;
+    $("#modalDiasResultado").text(dias + (dias == 1 ? " día" : " días"));
+    var modalDias = new bootstrap.Modal(document.getElementById('modalDetalleDias'));
+    modalDias.show();
+});
