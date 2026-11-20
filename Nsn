@@ -1,0 +1,455 @@
+<?php
+session_start();
+include "../conexion.php";
+include "includes/headerSub.php";
+?>
+
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Agrupar Subsidios</title>
+
+    <style>
+        .modal.fade:not(.show) {
+            display: none !important;
+        }
+
+        .timeline-steps {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            position: relative;
+            min-width: 280px;
+            padding: 5px 0;
+        }
+        .timeline-steps::before {
+            content: '';
+            position: absolute;
+            top: 50%;
+            left: 15px;
+            right: 15px;
+            height: 3px;
+            background: #e9ecef;
+            transform: translateY(-50%);
+            z-index: 1;
+        }
+        .timeline-step {
+            position: relative;
+            z-index: 2;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            background: transparent;
+            border: none;
+            padding: 0;
+            cursor: pointer;
+        }
+        .timeline-step .circle {
+            width: 30px;
+            height: 30px;
+            border-radius: 50%;
+            background-color: #6c757d;
+            color: white;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 12px;
+            font-weight: bold;
+            transition: all 0.3s ease;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+        .timeline-step.completed .circle {
+            background-color: #198754; 
+        }
+        .timeline-step.active .circle {
+            background-color: #0d6efd; 
+            transform: scale(1.1);
+            box-shadow: 0 0 0 4px rgba(13, 110, 253, 0.25);
+        }
+        .timeline-step .label {
+            font-size: 10px;
+            margin-top: 4px;
+            color: #6c757d;
+            font-weight: 600;
+            white-space: nowrap;
+        }
+        .timeline-step.active .label {
+            color: #0d6efd;
+        }
+        .timeline-step.completed .label {
+            color: #198754;
+        }
+    </style>
+</head>
+<body>
+    
+<div class="container-fluid px-4 py-4" style="background-color: #eaebec; min-height: 90vh;">
+    
+    <!-- Encabezado -->
+    <div class="card border-0 shadow-sm rounded-4 mb-2 p-1 bg-white border-start border-secondary border-4">
+        <div>
+            <h3 class="fw-bold text-purple mb-1 text-center" style='color: #8527c4;'>AGRUPACIÓN DE SUBSIDIOS</h3>
+        </div>
+    </div>
+
+    <!-- Filtros -->
+    <div class="card border-0 shadow-sm rounded-4 mb-4 p-4 bg-white">
+        <form id="filtroForm">
+            <div class="row align-items-end g-3">
+                <div class="col-md-4">
+                    <label for="cliente" class="form-label text-secondary fw-bold small">Filtro por Cliente</label>
+                    <select id="cliente" name="cliente" class="form-select shadow-none border-light bg-light py-2 rounded-3">
+                        <option value="">Selecciona una opción</option>
+                        <?php
+                        $query_cli2 = "SELECT cli_iId, cli_vcRazonSocial FROM cliente WHERE cli_iId NOT IN (2, 3, 7, 8, 11, 16, 17, 18)";
+                        $result_cli2 = $conn->query($query_cli2);
+                        if ($result_cli2 && $result_cli2->num_rows > 0) {
+                            while ($row_cli2 = $result_cli2->fetch_assoc()) {
+                                echo '<option value="' . htmlspecialchars($row_cli2['cli_vcRazonSocial']) . '">' . htmlspecialchars($row_cli2['cli_vcRazonSocial']) . '</option>';
+                            }
+                        }
+                        ?>
+                    </select>
+                </div>
+                
+                <div class="col-md-4">
+                    <label for="trabajador" class="form-label text-secondary fw-bold small">Filtro por Trabajador</label>
+                    <select id="trabajador" name="trabajador" class="form-select shadow-none border-light bg-light py-2 rounded-3">
+                        <option value="">Selecciona una opción</option>
+                        <?php
+                        $query_tra = "SELECT nombre_trabajador FROM subsidios WHERE nombre_trabajador IS NOT NULL GROUP BY nombre_trabajador ORDER BY nombre_trabajador ASC";
+                        $result_tra = $conn->query($query_tra);
+                        if ($result_tra && $result_tra->num_rows > 0) {
+                            while ($row_tra = $result_tra->fetch_assoc()) {
+                                echo '<option value="' . htmlspecialchars($row_tra['nombre_trabajador']) . '">' . htmlspecialchars($row_tra['nombre_trabajador']) . '</option>';
+                            }
+                        }
+                        ?>
+                    </select>
+                </div>
+
+                <div class="col-md-2 text-md-end">
+                    <button type="button" class="btn btn-outline-dark px-4 shadow-sm w-100 rounded-3 py-2 fw-semibold" id="resetFiltro">
+                        <i class="fas fa-eraser me-1"></i> Limpiar
+                    </button>
+                </div>
+                
+                <div class="col-md-2 text-md-end">
+                    <button type="button" id="descargarExcel" class="btn btn-success shadow-sm px-4 rounded-3 text-white fw-semibold py-2">
+                        <i class="fas fa-file-excel me-2"></i> Exportar Excel
+                    </button>
+                </div>
+            </div>
+        </form>
+    </div>
+
+    <!-- Tabla -->
+    <div class="card border-0 shadow-sm rounded-4 p-4 bg-white">
+        <div class="table-responsive">
+            <table class="table table-striped table-bordered table-hover align-middle mb-0" id="tablaInventario">
+                <thead class="text-muted small text-uppercase bg-light sticky-top">
+                    <tr>
+                        <th class="text-center py-3 fw-bold" style="background-color: #000000; color: white; height: 40px; border-radius: 7px 0 0 0px; width: 15%;">Empresa</th>
+                        <th class="text-center py-3 fw-bold" style="background-color: #000000; color: white; height: 40px; width: 18%;">Nombre Trabajador</th>
+                        <th class="text-center py-3 fw-bold" style="background-color: #000000; color: white; height: 40px; width: 8%;">DNI</th>
+                        <th class="text-center py-3 fw-bold" style="background-color: #000000; color: white; height: 40px; width: 12%;">Fechas</th>
+                        <th class="text-center py-3 fw-bold" style="background-color: #000000; color: white; height: 40px; width: 8%;">Total Días</th>
+                        <th class="text-center py-3 fw-bold" style="background-color: #000000; color: white; height: 40px; border-radius: 0 7px 7px 0; width: 39%;">Flujo del Subsidio</th>
+                    </tr>
+                </thead>
+                <tbody class="border-top-0">
+                    <?php
+                    $query = "SELECT 
+                                    s.id_subs,
+                                    s.empresa,
+                                    s.nombre_trabajador,
+                                    s.numdocumento,
+                                    s.fecha_inicio,
+                                    s.fecha_fin,
+                                    s.cliente,
+                                    totales.total_dias_trabajador AS total_dias
+                              FROM subsidios s
+                              INNER JOIN (
+                                  SELECT 
+                                      numdocumento,
+                                      SUM(DATEDIFF(fecha_fin, fecha_inicio) + 1) AS total_dias_trabajador
+                                  FROM subsidios
+                                  GROUP BY numdocumento
+                              ) totales ON s.numdocumento = totales.numdocumento
+                              ORDER BY s.id_subs DESC";
+                    
+                    $query_run = @mysqli_query($conn, $query);
+
+                    if ($query_run && mysqli_num_rows($query_run) > 0) {
+                        while ($dni = mysqli_fetch_assoc($query_run)) {
+                            // Si luego agregas una columna de estado en 'subsidios', cámbialo por strtolower($dni['estado'] ?? 'notificado por planillas')
+                            $estadoActual = strtolower($dni['estado'] ?? 'notificado por planillas');
+                            $pasos = [
+                                'notificado por planillas',
+                                'en tramite',
+                                'observado',
+                                'registro de pago',
+                                'conciliacion'
+                            ];
+                            $etiquetas = [
+                                'notificado por planillas' => 'Notificado por Planillas',
+                                'en tramite' => 'En trámite',
+                                'observado' => 'Observado',
+                                'registro de pago' => 'Registro de pago',
+                                'conciliacion' => 'Conciliación'
+                            ];
+                            $modales = [
+                                'notificado por planillas' => '#modalNotificadoPlanillas',
+                                'en tramite' => '#modalEnTramite',
+                                'observado' => '#modalObservado',
+                                'registro de pago' => '#modalRegistroPago',
+                                'conciliacion' => '#modalConciliacion'
+                            ];
+
+                            $indiceActual = array_search($estadoActual, $pasos);
+                            if ($indiceActual === false) {
+                                $indiceActual = 0;
+                            }
+                    ?>
+                            <tr>
+                                <td class="text-center text-secondary small"><?= htmlspecialchars($dni['empresa']) ?></td>
+                                <td class="text-center text-secondary fw-bold small"><?= htmlspecialchars($dni['nombre_trabajador']) ?></td>
+                                <td class="text-center">
+                                    <span class="fs-6 fw-bold">
+                                        <code><?= htmlspecialchars($dni['numdocumento']) ?></code>
+                                    </span>
+                                </td>
+                                <td class="text-center">
+                                    <span class="text-secondary fw-bold small">
+                                        Inicio: <code><?= htmlspecialchars($dni['fecha_inicio']) ?></code><br>
+                                        Fin: <code><?= htmlspecialchars($dni['fecha_fin']) ?></code>
+                                    </span>
+                                </td>
+                                <td class="text-center">
+                                    <span class="badge bg-success-subtle text-secondary border border-secondary-subtle px-3 py-2 rounded-pill fw-bold">
+                                        <?= htmlspecialchars($dni['total_dias']) ?> días
+                                    </span>
+                                </td>
+                                <td>
+                                    <div class="timeline-steps" data-id="<?= htmlspecialchars($dni['id_subs']) ?>">
+                                        <?php foreach ($pasos as $index => $paso): 
+                                            $claseEstado = "";
+                                            if ($index < $indiceActual) {
+                                                $claseEstado = "completed";
+                                            } elseif ($index === $indiceActual) {
+                                                $claseEstado = "active";
+                                            }
+                                        ?>
+                                            <button type="button"
+                                                    class="timeline-step <?= $claseEstado ?>"
+                                                    data-paso="<?= htmlspecialchars($paso) ?>"
+                                                    data-index="<?= $index ?>"
+                                                    data-actual="<?= $indiceActual ?>"
+                                                    data-id-subs="<?= htmlspecialchars($dni['id_subs']) ?>"
+                                                    data-trabajador="<?= htmlspecialchars($dni['nombre_trabajador']) ?>"
+                                                    data-dias="<?= htmlspecialchars($dni['total_dias']) ?>"
+                                                    data-target-modal="<?= $modales[$paso] ?>"
+                                                    title="<?= htmlspecialchars($etiquetas[$paso]) ?>">
+                                                <div class="circle">
+                                                    <?php if ($index < $indiceActual): ?>
+                                                        <i class="bi bi-check-lg"></i>
+                                                    <?php elseif ($index === $indiceActual): ?>
+                                                        <i class="bi bi-dot"></i>
+                                                    <?php else: ?>
+                                                        <?= $index + 1 ?>
+                                                    <?php endif; ?>
+                                                </div>
+                                                <span class="label"><?= htmlspecialchars($etiquetas[$paso]) ?></span>
+                                            </button>
+                                        <?php endforeach; ?>
+                                    </div>
+                                </td>
+                            </tr>
+                    <?php
+                        }
+                    } else {
+                        echo '<tr><td colspan="6" class="text-center py-5 text-muted fst-italic">No se encontraron registros de subsidios activos</td></tr>';
+                    }
+                    ?>
+                </tbody>
+            </table>
+        </div>
+    </div>
+</div>
+
+<!-- 1° Modal: Notificado por Planillas (Vacío por dentro para que agregues su contenido) -->
+<div class="modal fade" id="modalNotificadoPlanillas" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog modal-dialog-centered">
+        <div class="modal-content border-0 shadow-lg rounded-4 overflow-hidden">
+            <div class="modal-header bg-primary text-white py-3 px-4">
+                <h5 class="modal-title fs-6 fw-bold">1° Notificado por Planillas</h5>
+                <button type="button" class="btn-close btn-close-white shadow-none" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <div class="modal-body p-4">
+                <!-- Aquí agregarás los campos de Notificado por Planillas -->
+            </div>
+            <div class="modal-footer bg-light py-2 px-4 border-0">
+                <button type="button" class="btn btn-secondary btn-sm rounded-pill px-3" data-bs-dismiss="modal">Cerrar</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- 2° Modal: En trámite (Vacío por dentro para que agregues su contenido) -->
+<div class="modal fade" id="modalEnTramite" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog modal-dialog-centered">
+        <div class="modal-content border-0 shadow-lg rounded-4 overflow-hidden">
+            <div class="modal-header bg-info text-white py-3 px-4">
+                <h5 class="modal-title fs-6 fw-bold">2° En trámite</h5>
+                <button type="button" class="btn-close btn-close-white shadow-none" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <div class="modal-body p-4">
+                <!-- Aquí agregarás los campos de En trámite -->
+            </div>
+            <div class="modal-footer bg-light py-2 px-4 border-0">
+                <button type="button" class="btn btn-secondary btn-sm rounded-pill px-3" data-bs-dismiss="modal">Cerrar</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- 3° Modal: Observado (Vacío por dentro para que agregues su contenido) -->
+<div class="modal fade" id="modalObservado" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog modal-dialog-centered">
+        <div class="modal-content border-0 shadow-lg rounded-4 overflow-hidden">
+            <div class="modal-header bg-warning text-dark py-3 px-4">
+                <h5 class="modal-title fs-6 fw-bold">3° Observado</h5>
+                <button type="button" class="btn-close shadow-none" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <div class="modal-body p-4">
+                <!-- Aquí agregarás los campos de Observado -->
+            </div>
+            <div class="modal-footer bg-light py-2 px-4 border-0">
+                <button type="button" class="btn btn-secondary btn-sm rounded-pill px-3" data-bs-dismiss="modal">Cerrar</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- 4° Modal: Registro de pago (Vacío por dentro para que agregues su contenido) -->
+<div class="modal fade" id="modalRegistroPago" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog modal-dialog-centered">
+        <div class="modal-content border-0 shadow-lg rounded-4 overflow-hidden">
+            <div class="modal-header bg-success text-white py-3 px-4">
+                <h5 class="modal-title fs-6 fw-bold">4° Registro de pago</h5>
+                <button type="button" class="btn-close btn-close-white shadow-none" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <div class="modal-body p-4">
+                <!-- Aquí agregarás los campos de Registro de pago -->
+            </div>
+            <div class="modal-footer bg-light py-2 px-4 border-0">
+                <button type="button" class="btn btn-secondary btn-sm rounded-pill px-3" data-bs-dismiss="modal">Cerrar</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- 5° Modal: Conciliación (Vacío por dentro para que agregues su contenido) -->
+<div class="modal fade" id="modalConciliacion" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog modal-dialog-centered">
+        <div class="modal-content border-0 shadow-lg rounded-4 overflow-hidden">
+            <div class="modal-header bg-dark text-white py-3 px-4">
+                <h5 class="modal-title fs-6 fw-bold">5° Conciliación</h5>
+                <button type="button" class="btn-close btn-close-white shadow-none" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <div class="modal-body p-4">
+                <!-- Aquí agregarás los campos de Conciliación -->
+            </div>
+            <div class="modal-footer bg-light py-2 px-4 border-0">
+                <button type="button" class="btn btn-secondary btn-sm rounded-pill px-3" data-bs-dismiss="modal">Cerrar</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<?php include_once "includes/footer.php"; ?>
+
+<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+<script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
+<script src="https://cdn.datatables.net/1.13.6/js/jquery.dataTables.min.js"></script>
+<script src="https://cdn.datatables.net/1.13.6/js/dataTables.bootstrap5.min.js"></script>
+
+<script>
+    $(document).ready(function() {
+        var table = $('#tablaInventario').DataTable({
+            "paging": true,
+            "pageLength": 5,
+            "lengthChange": false,
+            "ordering": false,
+            "info": false,
+            "searching": true,
+            "language": {
+                "paginate": { "previous": "Anterior", "next": "Siguiente" },
+                "info": "Mostrando _START_ a _END_ de _TOTAL_ registros",
+                "search": "Buscar:",
+                "zeroRecords": "No se encontraron registros"
+            }
+        });
+
+        // Delegación de eventos en la tabla para abrir el modal correspondiente a cada estado
+        $('#tablaInventario').on('click', '.timeline-step', function() {
+            var targetModalSelector = $(this).data('target-modal');
+            var idSubs = $(this).data('id-subs');
+            var trabajador = $(this).data('trabajador');
+            var dias = $(this).data('dias');
+
+            var modalEl = document.querySelector(targetModalSelector);
+            if (modalEl) {
+                // Guarda el id_subs en el modal por si luego lo usas dentro de sus formularios
+                $(modalEl).attr('data-id-subs', idSubs);
+                $(modalEl).find('.modal-body').attr('data-id-subs', idSubs)
+                                              .attr('data-trabajador', trabajador)
+                                              .attr('data-dias', dias);
+
+                var bsModal = bootstrap.Modal.getOrCreateInstance(modalEl);
+                bsModal.show();
+            }
+        });
+
+        const clienteSelect = $('#cliente');
+        const trabajadorSelect = $('#trabajador');
+
+        clienteSelect.on('change', function() {
+            var val = $(this).val();
+            if (val !== "") { 
+                trabajadorSelect.val("").prop('disabled', true); 
+            } else { 
+                trabajadorSelect.prop('disabled', false); 
+            }
+            table.column(0).search(val === "all" || val === "" ? "" : $("option:selected", this).text()).draw();
+        });
+
+        trabajadorSelect.on('change', function() {
+            var val = $(this).val();
+            if (val !== "") { 
+                clienteSelect.val("").prop('disabled', true); 
+            } else { 
+                clienteSelect.prop('disabled', false); 
+            }
+            table.column(1).search(val === "" ? "" : $("option:selected", this).text()).draw();
+        });
+
+        $('#resetFiltro').on('click', function() {
+            $('#filtroForm')[0].reset();
+            clienteSelect.prop('disabled', false);
+            trabajadorSelect.prop('disabled', false);
+            table.search('').columns().search('').draw();
+        });
+    });
+</script>
+</body>
+</html>
+
+
+
+
+
+
+
