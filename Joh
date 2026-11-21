@@ -1,0 +1,1298 @@
+<?php
+session_start();
+include "../conexion.php";
+include "includes/headerSub.php";
+?>
+
+<style>
+    /* Mejorar la visibilidad del campo de carga de documentos */
+    .custom-file-label {
+        border: 2px solid #000;
+        padding: 10px;
+        font-weight: bold;
+        background-color: #f8f9fa;
+        text-align: center;
+    }
+
+    .custom-file-input:focus~.custom-file-label {
+        border-color: #fc6444;
+        box-shadow: 0 0 5px rgba(252, 100, 68, 0.5);
+    }
+
+    /* Hacer los labels más gruesos y negros */
+    label {
+        font-weight: 900;
+        color: black;
+    }
+
+    #previewContainer {
+        display: none;
+        margin-top: 10px;
+        padding: 10px;
+        border: 2px solid #000;
+        border-radius: 5px;
+        background: #f8f9fa;
+        text-align: center;
+    }
+
+    #previewImage {
+        max-width: 150px;
+        border-radius: 5px;
+    }
+
+    #previewPdf {
+        width: 100%;
+        height: 250px;
+        border-radius: 5px;
+    }
+</style>
+
+<div class="card">
+    <div class="card-body">
+        <h5 class="card-title" style="font-size: 1.25rem; font-weight: bold; text-align: center;">Registrar Descanso Médico / Subsidio</h5>
+    </div>
+</div>
+
+<div class="container-fluid">
+    <div class="row">
+        <div class="col-md-12">
+            <div class="card card-primary">
+                <div class="card-header">
+                    <div class="row">
+                        <h1 class="card-title justify-content-center text-center"
+                            style="font-size: 21px; color: #007bff;">
+                        </h1>
+                    </div>
+                </div>
+                <form id="form1" enctype="multipart/form-data">
+                    <div class="card-body">
+
+                        <!-- Selección de Tipo de Ausencia y Fechas -->
+                        <div class="form-group row mt-3 align-items-center">
+                            <label class="col-md-2 col-form-label text-right">Absentismo por salud:</label>
+                            <div class="col-md-2">
+                                <select class="form-control" id="tipoAusencia" name="tipoAusencia" required>
+                                    <option value="" selected disabled>Seleccionar...</option>
+                                    <option value="DM">Descanso Médico</option>
+                                    <option value="SUB">Subsidio por Incapacidad</option>
+                                    <option value="SUBM">Subsidio por Maternidad</option>
+                                </select>
+                            </div>
+
+                            <label class="col-md-1 col-form-label text-right">Fecha Inicio:</label>
+                            <div class="col-md-2">
+                                <input type="date" class="form-control" id="fechaInicio" name="fechaInicio" min="2010-01-01" required>
+                            </div>
+
+                            <label class="col-md-1 col-form-label text-right">Fecha Fin:</label>
+                            <div class="col-md-2">
+                                <input type="date" class="form-control" id="fechaFin" name="fechaFin" min="2010-01-01" required>
+                            </div>
+
+                            <div class="col-md-2">
+                                <div class="input-group">
+                                    <span class="input-group-text text-white fw-bold" style="background-color: #fc6444;">Días</span>
+                                    <input type="text" id="totalDiasCalculados" class="form-control fw-bold text-center text-secondary bg-light" value="0" readonly>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Información Adicional -->
+                        <div class="form-group row mt-3 align-items-center">
+                            <div class="col-md-1"></div>
+
+                            <!-- DNI -->
+                            <label class="col-md-1 col-form-label text-center">DNI:</label>
+                            <div class="col-md-2">
+                                <input type="text" class="form-control" id="dni" name="dni" required>
+                                <small id="errorDNI" class="text-danger" style="display: none;">⚠ DNI no encontrado</small>
+                                <small id="exitoDNI" class="text-success" style="display: none;">✔ DNI encontrado</small>
+                            </div>
+
+                            <!-- Cliente -->
+                            <label class="col-md-1 col-form-label text-center">Cliente:</label>
+                            <div class="col-md-3">
+                                <input type="text" class="form-control" id="subunidad" name="subunidad" placeholder="Empresa seleccionada" required readonly>
+                                <input type="hidden" id="conplaId" name="conplaId">
+                                <input type="hidden" id="cliId" name="cliId">
+                                <small id="errorCliente" class="text-danger" style="display: none;">⚠ Cliente no encontrado</small>
+                            </div>
+
+                            <!-- Monto Diario -->
+                            <label class="col-md-1 col-form-label text-center">Monto diario:</label>
+                            <div class="col-md-2">
+                                <input type="number" step="0.01" class="form-control border bg-white py-2" name="monto_diario" id="monto_diario" placeholder="954.00" required>
+                            </div>
+                        </div>
+
+                        <!-- Subir Documento -->
+                        <div class="form-group row mt-3">
+                            <div class="col-md-2"></div>
+
+                            <label class="col-md-1 col-form-label text-center">Subir Documento:</label>
+                            <div class="col-md-6">
+                                <div class="custom-file">
+                                    <input type="file" class="custom-file-input" id="documento" name="documento" accept=".pdf,.jpg,.png" required>
+                                    <label class="custom-file-label" for="documento">Seleccionar archivo...</label>
+                                </div>
+                                <small class="text-muted">Formatos permitidos: PDF, JPG, PNG</small>
+
+                                <!-- Contenedor de vista previa -->
+                                <div id="previewContainer">
+                                    <img id="previewImage" src="#" alt="Vista previa" style="display: none;">
+                                    <iframe id="previewPdf" style="display: none;"></iframe>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Botón de Envío -->
+                        <div class="form-group row mt-4">
+                            <div class="col-md-12 text-center">
+                                <button type="submit" class="btn btn-lg text-white" style="background-color: #fc6444;">
+                                    <i class="fas fa-play"></i> <b>Registrar</b>
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Modal para seleccionar empresa si hay más de una -->
+<div class="modal fade" id="modalEmpresas" tabindex="-1" aria-labelledby="modalEmpresasLabel" aria-hidden="true">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title" id="modalEmpresasLabel">Seleccionar Empresa</h5>
+                <button type="button" class="close" data-dismiss="modal" aria-label="Close">
+                    <span aria-hidden="true">&times;</span>
+                </button>
+            </div>
+            <div class="modal-body">
+                <ul id="listaEmpresas" class="list-group"></ul>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Modal de Confirmación por Registro Existente -->
+<div class="modal fade" id="modalConfirmar" tabindex="-1" aria-labelledby="modalConfirmarLabel" aria-hidden="true">
+    <div class="modal-dialog modal-dialog-centered">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title">Registro Existente</h5>
+                <button type="button" class="close" data-dismiss="modal" aria-label="Cerrar">
+                    <span aria-hidden="true">&times;</span>
+                </button>
+            </div>
+            <div class="modal-body">
+                <p>Ya existe un registro con las siguientes características:</p>
+                <p><strong>Rango de Fechas:</strong> <span id="rangoFechas"></span></p>
+                <p><strong>Tipo de Ausencia:</strong> <span id="tipoAusenciaActual"></span></p>
+                <p>¿Desea reemplazar este registro?</p>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-dismiss="modal">Cancelar</button>
+                <button type="button" id="btnReemplazar" class="btn btn-danger">Reemplazar</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Modal 1: Aviso de días disponibles (Aún bajo el límite de 20 días) -->
+<div class="modal fade" id="modalDiasDisponibles" tabindex="-1" aria-hidden="true" data-bs-backdrop="static">
+    <div class="modal-dialog modal-dialog-centered">
+        <div class="modal-content border-0 shadow-lg rounded-4 overflow-hidden">
+            <div class="modal-header bg-primary text-white py-3 px-4">
+                <h5 class="modal-title fw-bold fs-6">
+                    <i class="fas fa-info-circle me-2"></i> Bienestar Social - Control de Descansos
+                </h5>
+                <button type="button" class="btn-close btn-close-white shadow-none" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <div class="modal-body p-4 text-center bg-white">
+                <div class="mb-3 text-primary fs-1"><i class="fas fa-user-clock"></i></div>
+                <p class="fs-6 text-dark mb-0">
+                    Al trabajador <strong><span id="nombreTrabajadorDisp"></span></strong> le quedan <strong id="diasRestantesDisp" class="text-primary"></strong> días de descanso médico antes de ingresar al periodo cubierto por el subsidio de incapacidad temporal de EsSalud.
+                </p>
+            </div>
+            <div class="modal-footer bg-light py-3 px-4 justify-content-center border-0">
+                <button type="button" class="btn btn-outline-secondary px-4 rounded-pill py-2" data-bs-dismiss="modal">Cancelar</button>
+                <button type="button" id="btnContinuarDescansoNormal" class="btn btn-primary px-4 rounded-pill shadow-sm py-2 fw-semibold">Aceptar</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Modal 2: Advertencia de límite alcanzado (Solo informativo, con botón Aceptar) -->
+<div class="modal fade" id="modalLimiteAlcanzado" tabindex="-1" aria-hidden="true" data-bs-backdrop="static">
+    <div class="modal-dialog modal-dialog-centered">
+        <div class="modal-content border-0 shadow-lg rounded-4 overflow-hidden">
+            <div class="modal-header bg-warning text-dark py-3 px-4">
+                <h5 class="modal-title fw-bold fs-6">
+                    <i class="fas fa-exclamation-triangle me-2"></i> Bienestar Social - Límite de 20 Días Alcanzado
+                </h5>
+                <button type="button" class="btn-close shadow-none" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <div class="modal-body p-4 text-center bg-white">
+                <div class="mb-3 text-warning fs-1"><i class="fas fa-exclamation-circle"></i></div>
+                <p class="fs-6 text-dark mb-0">
+                    El trabajador <strong><span id="nombreTrabajadorLimit"></span></strong> ya ha alcanzado o superado el límite de 20 días de descanso médico (le quedan <strong><span id="diasRestantesLimit" class="text-danger">0</span></strong> días). Por lo tanto, <strong>no se puede registrar como Descanso Médico</strong>. Debe seleccionarlo y registrarlo como <strong>Subsidio</strong> desde el formulario.
+                </p>
+            </div>
+            <div class="modal-footer bg-light py-3 px-4 justify-content-center border-0">
+                <button type="button" class="btn btn-warning px-4 rounded-pill shadow-sm py-2 fw-semibold text-dark" data-bs-dismiss="modal">Aceptar</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<?php include_once "includes/footer.php"; ?>
+
+<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0-alpha1/dist/js/bootstrap.bundle.min.js"></script>
+
+<script>
+    // Visualizar documento
+    document.getElementById('documento').addEventListener('change', function(event) {
+        const file = event.target.files[0];
+        const previewContainer = document.getElementById('previewContainer');
+        const previewImage = document.getElementById('previewImage');
+        const previewPdf = document.getElementById('previewPdf');
+
+        if (file) {
+            const fileType = file.type;
+            previewContainer.style.display = 'block';
+
+            if (fileType.startsWith('image/')) {
+                const reader = new FileReader();
+                reader.onload = function(e) {
+                    previewImage.src = e.target.result;
+                    previewImage.style.display = 'block';
+                    previewPdf.style.display = 'none';
+                };
+                reader.readAsDataURL(file);
+            } else if (fileType === 'application/pdf') {
+                const fileURL = URL.createObjectURL(file);
+                previewPdf.src = fileURL;
+                previewPdf.style.display = 'block';
+                previewImage.style.display = 'none';
+            } else {
+                previewContainer.style.display = 'none';
+            }
+        } else {
+            previewContainer.style.display = 'none';
+        }
+    });
+
+    // Función para calcular los días dinámicamente entre las fechas seleccionadas
+    function calcularTotalDias() {
+        let fInicio = $("#fechaInicio").val();
+        let fFin = $("#fechaFin").val();
+
+        if (fInicio && fFin) {
+            let fecha1 = new Date(fInicio);
+            let fecha2 = new Date(fFin);
+
+            if (fecha2 >= fecha1) {
+                let diferenciaTiempo = fecha2 - fecha1;
+                let diasTotales = (diferenciaTiempo / (1000 * 60 * 60 * 24)) + 1;
+                $("#totalDiasCalculados").val(diasTotales);
+            } else {
+                $("#totalDiasCalculados").val(0);
+            }
+        } else {
+            $("#totalDiasCalculados").val(0);
+        }
+    }
+
+    $("#fechaInicio, #fechaFin").on("change", function() {
+        calcularTotalDias();
+    });
+
+    // Verificar Persona por DNI
+    $(document).ready(function() {
+        $("#dni").on("keyup", function() {
+            let dni = $(this).val();
+
+            if (dni.length >= 8) {
+                $.ajax({
+                    url: "procedimientos/descansoMedico_validarDNI.php",
+                    type: "POST",
+                    data: { dni: dni },
+                    dataType: "json",
+                    success: function(response) {
+                        if (response.success) {
+                            $("#errorDNI").hide();
+                            $("#exitoDNI").show();
+
+                            if (response.empresas.length === 1) {
+                                $("#subunidad").val(response.empresas[0].nombre);
+                                $("#conplaId").val(response.empresas[0].conpla_id);
+                                $("#cliId").val(response.empresas[0].cli_id);
+                            } else {
+                                $("#listaEmpresas").empty();
+                                response.empresas.forEach(function(empresa) {
+                                    $("#listaEmpresas").append(
+                                        `<li class="list-group-item list-group-item-action empresa-item" 
+                                        data-id="${empresa.cli_id}" 
+                                        data-conpla="${empresa.conpla_id}">
+                                        ${empresa.nombre}
+                                    </li>`
+                                    );
+                                });
+                                $("#modalEmpresas").modal("show");
+                            }
+                        } else {
+                            $("#exitoDNI").hide();
+                            $("#errorDNI").text("⚠ DNI no encontrado en la base de datos").show();
+                            $("#subunidad").val("");
+                            $("#conplaId").val("");
+                            $("#cliId").val("");
+                        }
+                    },
+                    error: function() {
+                        alert("Error en la consulta AJAX de DNI");
+                    }
+                });
+            }
+        });
+
+        $(document).on("click", ".empresa-item", function() {
+            let empresaNombre = $(this).text();
+            let empresaId = $(this).data("id");
+            let conplaId = $(this).data("conpla");
+
+            $("#subunidad").val(empresaNombre);
+            $("#cliId").val(empresaId);
+            $("#conplaId").val(conplaId);
+            $("#modalEmpresas").modal("hide");
+        });
+    });
+
+    // Guardar Documento con Control Total de Modales
+    $(document).ready(function() {
+        $(document).off("submit", "#form1").on("submit", "#form1", function(e) {
+            e.preventDefault();
+
+            let fechaInicio = $("#fechaInicio").val();
+            let fechaFin = $("#fechaFin").val();
+
+            if (fechaInicio === "0000-00-00" || fechaFin === "0000-00-00") {
+                alert("⚠ No se permite la fecha 0000-00-00");
+                return;
+            }
+
+            var formData = new FormData(this);
+
+            $.ajax({
+                url: "procedimientos/descansoMedico_guardar.php",
+                type: "POST",
+                data: formData,
+                contentType: false,
+                processData: false,
+                dataType: "json",
+                success: function(response) {
+                    if (response.dias_disponibles) {
+                        $("#nombreTrabajadorDisp").text(response.nombre);
+                        $("#diasRestantesDisp").text(response.dias_restantes);
+                        
+                        var modalDisp = new bootstrap.Modal(document.getElementById('modalDiasDisponibles'));
+                        modalDisp.show();
+
+                        $("#btnContinuarDescansoNormal").off("click").on("click", function() {
+                            formData.append("forzar_normal", "1");
+                            modalDisp.hide();
+                            enviarDatosServidorFinal(formData);
+                        });
+
+                    } else if (response.limite_alcanzado) {
+                        $("#nombreTrabajadorLimit").text(response.nombre);
+                        $("#diasRestantesLimit").text(response.dias_restantes);
+                        
+                        var modalLimit = new bootstrap.Modal(document.getElementById('modalLimiteAlcanzado'));
+                        modalLimit.show();
+
+                    } else if (response.existe) {
+                        $("#modalConfirmar #rangoFechas").text(response.fechaInicio + " al " + response.fechaFin);
+                        $("#modalConfirmar #tipoAusenciaActual").text(response.tipoAusencia);
+                        $("#modalConfirmar").modal("show");
+
+                        $("#btnReemplazar").off("click").on("click", function() {
+                            var updateData = new FormData(document.getElementById('form1'));
+                            updateData.append("actualizar", true);
+                            $.ajax({
+                                url: "procedimientos/descansoMedico_actualizar.php",
+                                type: "POST",
+                                data: updateData,
+                                contentType: false,
+                                processData: false,
+                                success: function(updateResponse) {
+                                    alert(updateResponse);
+                                    location.reload();
+                                },
+                                error: function() {
+                                    alert("Error al actualizar el registro.");
+                                }
+                            });
+                        });
+                    } else if (response.mensaje) {
+                        alert(response.mensaje);
+                        location.reload();
+                    } else if (response.error) {
+                        alert("⚠ " + response.error);
+                    }
+                },
+                error: function(xhr) {
+                    console.error(xhr.responseText);
+                    alert("Error al procesar la solicitud en el servidor.");
+                }
+            });
+        });
+
+        function enviarDatosServidorFinal(formData) {
+            $.ajax({
+                url: "procedimientos/descansoMedico_guardar.php",
+                type: "POST",
+                data: formData,
+                contentType: false,
+                processData: false,
+                dataType: "json",
+                success: function(res) {
+                    alert(res.mensaje || "¡Operación realizada con éxito!");
+                    location.reload();
+                },
+                error: function() {
+                    alert("Error al registrar de forma definitiva.");
+                }
+            });
+        }
+    });
+</script>
+
+
+
+
+<?php
+// Limpiar cualquier salida previa o espacio en blanco para que el JSON viaje limpio
+ob_clean();
+ob_start();
+
+session_start();
+include "../../conexion.php";
+
+// Desactivar la visualización directa de errores en pantalla para no corromper el JSON
+ini_set('display_errors', 0);
+error_reporting(E_ALL);
+
+header('Content-Type: application/json; charset=utf-8');
+
+if ($_SERVER["REQUEST_METHOD"] == "POST") {
+    $usu_iId = isset($_SESSION['idUser']) ? (int)$_SESSION['idUser'] : 0;
+    $tipoAusencia = $_POST['tipoAusencia'] ?? null;
+    $fechaInicio = $_POST['fechaInicio'] ?? null;
+    $fechaFin = $_POST['fechaFin'] ?? null;
+    $dni = $_POST['dni'] ?? null;
+    $subunidad = $_POST['subunidad'] ?? null;
+    $conplaId = $_POST['conplaId'] ?? null;
+    $cliId = $_POST['cliId'] ?? null;
+    $montoDiario = isset($_POST['monto_diario']) && $_POST['monto_diario'] !== '' ? (float)$_POST['monto_diario'] : 0.00;
+
+    $forzarNormal = isset($_POST['forzar_normal']) ? $_POST['forzar_normal'] === '1' : false;
+
+    date_default_timezone_set('America/Lima');
+    $fecha_hoy = date("Y-m-d");
+
+    if (!$usu_iId || !$tipoAusencia || !$fechaInicio || !$fechaFin || !$dni || !$conplaId || !$cliId) {
+        ob_clean();
+        echo json_encode(["error" => "Faltan datos obligatorios."]);
+        exit;
+    }
+
+    // Buscar platra_iId, conpla_iCodigo y nombre del trabajador
+    $consulta01 = "SELECT DISTINCT ptl.platra_iId, cp.conpla_iCodigo, p.per_vcNombres
+                   FROM persona p
+                   INNER JOIN planilla_trabajadorlog ptl ON ptl.per_iId = p.per_iId
+                   INNER JOIN contrato_planilla cp ON cp.conpla_iId = ptl.conpla_iId
+                   WHERE p.per_vcDocumento = ? AND cp.conpla_iId = ?";
+                   
+    $stmt = $conn->prepare($consulta01);
+    if (!$stmt) {
+        ob_clean();
+        echo json_encode(["error" => "Error en BD: " . $conn->error]);
+        exit;
+    }
+    $stmt->bind_param("ss", $dni, $conplaId);
+    $stmt->execute();
+    $stmt->bind_result($platra_iId, $conpla_iCodigo, $nombreTrabajador);
+
+    if (!$stmt->fetch()) {
+        $stmt->close();
+        ob_clean();
+        echo json_encode(["error" => "No se encontró ningún registro asociado al DNI y contrato."]);
+        exit;
+    }
+    $stmt->close();
+
+    // Procesar archivo adjunto si existe
+    $documentoDatos = null;
+    $documentoNombre = null;
+    $documentoTipo = null;
+
+    if (isset($_FILES["documento"]) && $_FILES["documento"]["error"] == 0) {
+        $documentoNombre = $_FILES["documento"]["name"];
+        $documentoTipo = $_FILES["documento"]["type"];
+        $documentoDatos = file_get_contents($_FILES["documento"]["tmp_name"]);
+    }
+
+    // Función auxiliar para insertar absentismo y actualizar tareo/asistencia
+    function registrarAbsentismoYTareo($conn, $cliId, $conplaId, $conpla_iCodigo, $tipo, $fInicio, $fFin, $platra_iId, $dni, $docDatos, $docNombre, $docTipo, $usuId, $fHoy, $montoDiario = 0.00) {
+        $query = "INSERT INTO planilla_trabajador_absentismosalud 
+                  (cli_iId, conpla_iId, conpla_iCodigo, platraabs_conceptoRemunerativo, platraabs_fechaInicio, platraabs_fechaFin, platra_iId, 
+                  platraabs_dni, platraabs_documento, platraabs_documentoNombre, platraabs_tipoArchivo, usu_iId, platraabs_fechaInsercion)
+                  VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)";
+
+        $stmt = $conn->prepare($query);
+        if (!$stmt) {
+            return false;
+        }
+        
+        $stmt->bind_param("sssssssssssis", $cliId, $conplaId, $conpla_iCodigo, $tipo, $fInicio, $fFin, $platra_iId, $dni, $docDatos, $docNombre, $docTipo, $usuId, $fHoy);
+        
+        if ($stmt->execute()) {
+            $stmt->close();
+
+            if ($tipo === 'SUB' || $tipo === 'SUBM') {
+                $queryEmp = "SELECT cli_vcRazonSocial FROM cliente WHERE cli_iId = ?";
+                $stmtEmp = $conn->prepare($queryEmp);
+                if ($stmtEmp) {
+                    $stmtEmp->bind_param("s", $cliId);
+                    $stmtEmp->execute();
+                    $stmtEmp->bind_result($nombreEmpresa);
+                    $stmtEmp->fetch();
+                    $stmtEmp->close();
+                }
+                $nombreEmpresa = $nombreEmpresa ?? 'Empresa';
+
+                global $nombreTrabajador;
+                $querySubIns = "INSERT INTO subsidios (empresa, nombre_trabajador, numdocumento, fecha_inicio, fecha_fin, monto_diario) VALUES (?, ?, ?, ?, ?, ?)";
+                $stmtSub = $conn->prepare($querySubIns);
+                if ($stmtSub) {
+                    $stmtSub->bind_param("sssssd", $nombreEmpresa, $nombreTrabajador, $dni, $fInicio, $fFin, $montoDiario);
+                    $stmtSub->execute();
+                    $stmtSub->close();
+                }
+            }
+
+            if (in_array($tipo, ['DM', 'SUB', 'SUBM'])) {
+                $for_iId_map = ['DM' => 66, 'SUB' => 87, 'SUBM' => 136];
+                $for_iId = $for_iId_map[$tipo];
+
+                $inicio = new DateTime($fInicio);
+                $fin = new DateTime($fFin);
+                $intervalo = new DateInterval('P1D');
+                $periodo = new DatePeriod($inicio, $intervalo, $fin->modify('+1 day'));
+
+                $delete2 = "DELETE FROM planilla_trabajador_asistenciatareo WHERE platra_iId = ? AND conpla_iCodigo = ? AND platraast_fecha BETWEEN ? AND ?";
+                $stmtDel2 = $conn->prepare($delete2);
+                if ($stmtDel2) {
+                    $stmtDel2->bind_param("ssss", $platra_iId, $conpla_iCodigo, $fInicio, $fFin);
+                    $stmtDel2->execute();
+                    $stmtDel2->close();
+                }
+                
+                $queryInsert = "INSERT INTO planilla_trabajador_asistenciatareo (platra_iId, conpla_iCodigo, for_iId, platraast_fecha, platraast_tiempo) VALUES (?, ?, ?, ?, ?)";
+                $stmt2 = $conn->prepare($queryInsert);
+                if ($stmt2) {
+                    foreach ($periodo as $fecha) {
+                        $fechaFormato = $fecha->format('Y-m-d');
+                        $tiempo = '1';
+                        $stmt2->bind_param("sssss", $platra_iId, $conpla_iCodigo, $for_iId, $fechaFormato, $tiempo);
+                        $stmt2->execute();
+                    }
+                    $stmt2->close();
+                }
+
+                $delete1 = "DELETE FROM planilla_trabajador_asistencia WHERE platra_iId = ? AND conpla_iCodigo = ? AND platraas_fecha BETWEEN ? AND ?";
+                $stmtDel1 = $conn->prepare($delete1);
+                if ($stmtDel1) {
+                    $stmtDel1->bind_param("ssss", $platra_iId, $conpla_iCodigo, $fInicio, $fFin);
+                    $stmtDel1->execute();
+                    $stmtDel1->close();
+                }
+            }
+            return true;
+        }
+        return false;
+    }
+
+    // VALIDACIÓN INICIAL Y CÁLCULO DE LOS 20 DÍAS
+    if ($tipoAusencia === 'DM' && !$forzarNormal) {
+        $anioActual = date('Y', strtotime($fechaInicio));
+
+        $querySuma = "SELECT SUM(DATEDIFF(pta.platraabs_fechaFin, pta.platraabs_fechaInicio) + 1) AS dias_acumulados
+                      FROM planilla_trabajador_absentismosalud pta
+                      WHERE pta.platraabs_dni = ? 
+                        AND YEAR(pta.platraabs_fechaInicio) = ?
+                        AND pta.platraabs_conceptoRemunerativo = 'DM'";
+        $stmtSuma = $conn->prepare($querySuma);
+        $stmtSuma->bind_param("ss", $dni, $anioActual);
+        $stmtSuma->execute();
+        $stmtSuma->bind_result($diasPrevios);
+        $stmtSuma->fetch();
+        $stmtSuma->close();
+
+        $diasPrevios = intval($diasPrevios ?? 0);
+        $diasRestantesEmpresa = max(0, 20 - $diasPrevios);
+
+        $f1 = new DateTime($fechaInicio);
+        $f2 = new DateTime($fechaFin);
+        $diasNuevos = $f1->diff($f2)->days + 1;
+
+        if ($diasRestantesEmpresa === 0 || $diasNuevos > $diasRestantesEmpresa) {
+            ob_clean();
+            echo json_encode([
+                "limite_alcanzado" => true,
+                "nombre" => $nombreTrabajador,
+                "dias_restantes" => $diasRestantesEmpresa
+            ]);
+            exit;
+        }
+
+        if ($diasNuevos <= $diasRestantesEmpresa) {
+            $diasDisponiblesDespues = $diasRestantesEmpresa - $diasNuevos;
+            ob_clean();
+            echo json_encode([
+                "dias_disponibles" => true,
+                "nombre" => $nombreTrabajador,
+                "dias_restantes" => $diasDisponiblesDespues
+            ]);
+            exit;
+        }
+    }
+
+    // GUARDADO NORMAL O DIRECTO (Para Subsidios, Maternidad o Descansos forzados bajo el límite)
+    if ($forzarNormal || in_array($tipoAusencia, ['SUB', 'SUBM'])) {
+        if (registrarAbsentismoYTareo($conn, $cliId, $conplaId, $conpla_iCodigo, $tipoAusencia, $fechaInicio, $fechaFin, $platra_iId, $dni, $documentoDatos, $documentoNombre, $documentoTipo, $usu_iId, $fecha_hoy, $montoDiario)) {
+            ob_clean();
+            echo json_encode(["mensaje" => "Registro guardado exitosamente."]);
+        } else {
+            ob_clean();
+            echo json_encode(["error" => "Error al guardar los datos en la base de datos."]);
+        }
+        exit;
+    }
+
+    $conn->close();
+}
+
+
+
+<?php
+session_start();
+include "../conexion.php";
+include "includes/headerSub.php";
+?>
+
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Agrupar Subsidios</title>
+
+    <style>
+        .modal.fade:not(.show) {
+            display: none !important;
+        }
+
+        .timeline-steps {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            position: relative;
+            min-width: 280px;
+            padding: 5px 0;
+        }
+        .timeline-steps::before {
+            content: '';
+            position: absolute;
+            top: 50%;
+            left: 15px;
+            right: 15px;
+            height: 3px;
+            background: #e9ecef;
+            transform: translateY(-50%);
+            z-index: 1;
+        }
+        .timeline-step {
+            position: relative;
+            z-index: 2;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            background: transparent;
+            border: none;
+            padding: 0;
+            cursor: pointer;
+        }
+        .timeline-step.static-step {
+            cursor: default;
+        }
+        .timeline-step.locked-step {
+            cursor: not-allowed;
+            opacity: 0.55;
+        }
+        .timeline-step .circle {
+            width: 30px;
+            height: 30px;
+            border-radius: 50%;
+            background-color: #6c757d;
+            color: white;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 12px;
+            font-weight: bold;
+            transition: all 0.3s ease;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+        .timeline-step.completed .circle {
+            background-color: #198754; 
+        }
+        .timeline-step.active .circle {
+            background-color: #0d6efd; 
+            transform: scale(1.1);
+            box-shadow: 0 0 0 4px rgba(13, 110, 253, 0.25);
+        }
+        .timeline-step .label {
+            font-size: 10px;
+            margin-top: 4px;
+            color: #6c757d;
+            font-weight: 600;
+            white-space: nowrap;
+        }
+        .timeline-step.active .label {
+            color: #0d6efd;
+        }
+        .timeline-step.completed .label {
+            color: #198754;
+        }
+    </style>
+</head>
+<body>
+    
+<div class="container-fluid px-4 py-4" style="background-color: #eaebec; min-height: 90vh;">
+    
+    <!-- Encabezado -->
+    <div class="card border-0 shadow-sm rounded-4 mb-2 p-1 bg-white border-start border-secondary border-4">
+        <div>
+            <h3 class="fw-bold text-purple mb-1 text-center" style='color: #8527c4;'>AGRUPACIÓN DE SUBSIDIOS</h3>
+        </div>
+    </div>
+
+    <!-- Filtros -->
+    <div class="card border-0 shadow-sm rounded-4 mb-4 p-4 bg-white">
+        <form id="filtroForm">
+            <div class="row align-items-end g-3">
+                <div class="col-md-4">
+                    <label for="cliente" class="form-label text-secondary fw-bold small">Filtro por Cliente</label>
+                    <select id="cliente" name="cliente" class="form-select shadow-none border-light bg-light py-2 rounded-3">
+                        <option value="">Selecciona una opción</option>
+                        <?php
+                        $query_cli2 = "SELECT cli_iId, cli_vcRazonSocial FROM cliente WHERE cli_iId NOT IN (2, 3, 7, 8, 11, 16, 17, 18)";
+                        $result_cli2 = $conn->query($query_cli2);
+                        if ($result_cli2 && $result_cli2->num_rows > 0) {
+                            while ($row_cli2 = $result_cli2->fetch_assoc()) {
+                                echo '<option value="' . htmlspecialchars($row_cli2['cli_vcRazonSocial']) . '">' . htmlspecialchars($row_cli2['cli_vcRazonSocial']) . '</option>';
+                            }
+                        }
+                        ?>
+                    </select>
+                </div>
+                
+                <div class="col-md-4">
+                    <label for="trabajador" class="form-label text-secondary fw-bold small">Filtro por Trabajador</label>
+                    <select id="trabajador" name="trabajador" class="form-select shadow-none border-light bg-light py-2 rounded-3">
+                        <option value="">Selecciona una opción</option>
+                        <?php
+                        $query_tra = "SELECT nombre_trabajador FROM subsidios WHERE nombre_trabajador IS NOT NULL GROUP BY nombre_trabajador ORDER BY nombre_trabajador ASC";
+                        $result_tra = $conn->query($query_tra);
+                        if ($result_tra && $result_tra->num_rows > 0) {
+                            while ($row_tra = $result_tra->fetch_assoc()) {
+                                echo '<option value="' . htmlspecialchars($row_tra['nombre_trabajador']) . '">' . htmlspecialchars($row_tra['nombre_trabajador']) . '</option>';
+                            }
+                        }
+                        ?>
+                    </select>
+                </div>
+
+                <div class="col-md-2 text-md-end">
+                    <button type="button" class="btn btn-outline-dark px-4 shadow-sm w-100 rounded-3 py-2 fw-semibold" id="resetFiltro">
+                        <i class="fas fa-eraser me-1"></i> Limpiar
+                    </button>
+                </div>
+                
+                <div class="col-md-2 text-md-end">
+                    <button type="button" id="descargarExcel" class="btn btn-success shadow-sm px-4 rounded-3 text-white fw-semibold py-2">
+                        <i class="fas fa-file-excel me-2"></i> Exportar Excel
+                    </button>
+                </div>
+            </div>
+        </form>
+    </div>
+
+    <!-- Tabla -->
+    <div class="card border-0 shadow-sm rounded-4 p-4 bg-white">
+        <div class="table-responsive">
+            <table class="table table-striped table-bordered table-hover align-middle mb-0" id="tablaInventario">
+                <thead class="text-muted small text-uppercase bg-light sticky-top">
+                    <tr>
+                        <th class="text-center py-3 fw-bold" style="background-color: #000000; color: white; height: 40px; border-radius: 7px 0 0 0px; width: 15%;">Empresa</th>
+                        <th class="text-center py-3 fw-bold" style="background-color: #000000; color: white; height: 40px; width: 18%;">Nombre Trabajador</th>
+                        <th class="text-center py-3 fw-bold" style="background-color: #000000; color: white; height: 40px; width: 8%;">DNI</th>
+                        <th class="text-center py-3 fw-bold" style="background-color: #000000; color: white; height: 40px; width: 12%;">Fechas</th>
+                        <th class="text-center py-3 fw-bold" style="background-color: #000000; color: white; height: 40px; width: 8%;">Total Días</th>
+                        <th class="text-center py-3 fw-bold" style="background-color: #000000; color: white; height: 40px; border-radius: 0 7px 7px 0; width: 39%;">Flujo del Subsidio</th>
+                    </tr>
+                </thead>
+                <tbody class="border-top-0">
+                    <?php
+                    $query = "SELECT 
+                                    s.id_subs,
+                                    s.empresa,
+                                    s.nombre_trabajador,
+                                    s.numdocumento,
+                                    s.fecha_inicio,
+                                    s.fecha_fin,
+                                    s.cliente,
+                                    totales.total_dias_trabajador AS total_dias
+                              FROM subsidios s
+                              INNER JOIN (
+                                  SELECT 
+                                      numdocumento,
+                                      SUM(DATEDIFF(fecha_fin, fecha_inicio) + 1) AS total_dias_trabajador
+                                  FROM subsidios
+                                  GROUP BY numdocumento
+                              ) totales ON s.numdocumento = totales.numdocumento
+                              ORDER BY s.id_subs DESC";
+                    
+                    $query_run = @mysqli_query($conn, $query);
+
+                    if ($query_run && mysqli_num_rows($query_run) > 0) {
+                        while ($dni = mysqli_fetch_assoc($query_run)) {
+                            // Estado inicial por defecto: 'en tramite' (índice 1), ya que 'notificado por planillas' (índice 0) ya viene completado
+                            $estadoActual = strtolower($dni['estado'] ?? 'en tramite');
+                            if ($estadoActual === 'notificado por planillas') {
+                                $estadoActual = 'en tramite';
+                            }
+
+                            $pasos = [
+                                'notificado por planillas',
+                                'en tramite',
+                                'observado',
+                                'registro de pago',
+                                'conciliacion'
+                            ];
+                            $etiquetas = [
+                                'notificado por planillas' => 'Notificado por Planillas',
+                                'en tramite' => 'En trámite',
+                                'observado' => 'Observado',
+                                'registro de pago' => 'Registro de pago',
+                                'conciliacion' => 'Conciliación'
+                            ];
+                            $modales = [
+                                'en tramite' => '#modalEnTramite',
+                                'observado' => '#exampleModalToggle',
+                                'registro de pago' => '#modalRegistroPago',
+                                'conciliacion' => '#modalConciliacion'
+                            ];
+
+                            $indiceActual = array_search($estadoActual, $pasos);
+                            if ($indiceActual === false || $indiceActual < 1) {
+                                $indiceActual = 1;
+                            }
+                    ?>
+                            <tr>
+                                <td class="text-center text-secondary small"><?= htmlspecialchars($dni['empresa']) ?></td>
+                                <td class="text-center text-secondary fw-bold small"><?= htmlspecialchars($dni['nombre_trabajador']) ?></td>
+                                <td class="text-center">
+                                    <span class="fs-6 fw-bold">
+                                        <code><?= htmlspecialchars($dni['numdocumento']) ?></code>
+                                    </span>
+                                </td>
+                                <td class="text-center">
+                                    <span class="text-secondary fw-bold small">
+                                        Inicio: <code><?= htmlspecialchars($dni['fecha_inicio']) ?></code><br>
+                                        Fin: <code><?= htmlspecialchars($dni['fecha_fin']) ?></code>
+                                    </span>
+                                </td>
+                                <td class="text-center">
+                                    <span class="badge bg-success-subtle text-secondary border border-secondary-subtle px-3 py-2 rounded-pill fw-bold">
+                                        <?= htmlspecialchars($dni['total_dias']) ?> días
+                                    </span>
+                                </td>
+                                <td>
+                                    <div class="timeline-steps" data-id="<?= htmlspecialchars($dni['id_subs']) ?>" data-indice-actual="<?= $indiceActual ?>">
+                                        <?php foreach ($pasos as $index => $paso): 
+                                            $claseEstado = "";
+                                            $bloqueado = false;
+
+                                            if ($paso === 'notificado por planillas' || $index < $indiceActual) {
+                                                $claseEstado = "completed";
+                                            } elseif ($index === $indiceActual) {
+                                                $claseEstado = "active";
+                                            } else {
+                                                $claseEstado = "locked-step";
+                                                $bloqueado = true;
+                                            }
+                                        ?>
+                                            <?php if ($paso === 'notificado por planillas'): ?>
+                                                <div class="timeline-step static-step completed" title="Completado: Notificado por Planillas">
+                                                    <div class="circle">
+                                                        <i class="bi bi-check-lg"></i>
+                                                    </div>
+                                                    <span class="label"><?= htmlspecialchars($etiquetas[$paso]) ?></span>
+                                                </div>
+                                            <?php else: ?>
+                                                <button type="button"
+                                                        class="timeline-step <?= $claseEstado ?>"
+                                                        data-paso="<?= htmlspecialchars($paso) ?>"
+                                                        data-index="<?= $index ?>"
+                                                        data-actual="<?= $indiceActual ?>"
+                                                        data-id-subs="<?= htmlspecialchars($dni['id_subs']) ?>"
+                                                        data-trabajador="<?= htmlspecialchars($dni['nombre_trabajador']) ?>"
+                                                        data-dias="<?= htmlspecialchars($dni['total_dias']) ?>"
+                                                        data-target-modal="<?= $modales[$paso] ?>"
+                                                        <?= $bloqueado ? 'disabled' : '' ?>
+                                                        title="<?= $bloqueado ? 'Completa el paso anterior para habilitar' : htmlspecialchars($etiquetas[$paso]) ?>">
+                                                    <div class="circle">
+                                                        <?php if ($index < $indiceActual): ?>
+                                                            <i class="bi bi-check-lg"></i>
+                                                        <?php elseif ($index === $indiceActual): ?>
+                                                            <i class="bi bi-dot"></i>
+                                                        <?php else: ?>
+                                                            <?= $index + 1 ?>
+                                                        <?php endif; ?>
+                                                    </div>
+                                                    <span class="label"><?= htmlspecialchars($etiquetas[$paso]) ?></span>
+                                                </button>
+                                            <?php endif; ?>
+                                        <?php endforeach; ?>
+                                    </div>
+                                </td>
+                            </tr>
+                    <?php
+                        }
+                    } else {
+                        echo '<tr><td colspan="6" class="text-center py-5 text-muted fst-italic">No se encontraron registros de subsidios activos</td></tr>';
+                    }
+                    ?>
+                </tbody>
+            </table>
+        </div>
+    </div>
+</div>
+
+<!-- Modal 2° Estado: En trámite -->
+<div class="modal fade" id="modalEnTramite" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog modal-dialog-centered">
+        <div class="modal-content border-0 shadow-lg rounded-4 overflow-hidden">
+            <div class="modal-header bg-info text-white py-3 px-4">
+                <h5 class="modal-title fs-6 fw-bold">En trámite</h5>
+                <button type="button" class="btn-close btn-close-white shadow-none" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <form id="formEnTramite" enctype="multipart/form-data">
+                <input type="hidden" name="id_subs" id="tramite_id_subs">
+                <div class="modal-body p-4">
+                    <div class="mb-3">
+                        <label class="form-label fw-bold text-secondary">Fecha de Presentación:</label>
+                        <input type="date" name="fechaPresentacion" id="tramite_fechaPresentacion" class="form-control" required>
+                    </div>
+
+                    <div class="mb-3">
+                        <label class="form-label fw-bold text-secondary">N° Expediente:</label>
+                        <input type="text" name="numExpediente" id="tramite_numExpediente" class="form-control" required>
+                    </div>
+
+                    <div class="mb-3">
+                        <label class="form-label fw-bold text-secondary">Fecha de cobro (posterior):</label>
+                        <input type="date" name="fechaCobro" id="tramite_fechaCobro" class="form-control">
+                    </div>
+
+                    <div class="mb-3">
+                        <label class="form-label fw-bold text-secondary">PDF del expediente:</label>
+                        <input class="form-control" type="file" name="archivo" id="tramite_archivo" accept=".pdf" required>
+                    </div> 
+                </div>
+                <div class="modal-footer bg-light py-2 px-4 border-0">
+                    <button type="button" class="btn btn-secondary btn-sm rounded-pill px-3" data-bs-dismiss="modal">Cerrar</button>
+                    <button type="submit" class="btn btn-info btn-sm rounded-pill px-3 text-white">Continuar</button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+
+<!-- Modal 3° Estado: Observado (Pregunta Sí / No) -->
+<div class="modal fade" id="exampleModalToggle" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog modal-dialog-centered">
+        <div class="modal-content border-0 shadow-lg rounded-4 overflow-hidden">
+            <div class="modal-header bg-success text-white py-3 px-4">
+                <h5 class="modal-title"><i class="bi bi-exclamation-diamond"></i> Observación</h5>
+                <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <input type="hidden" id="obs_id_subs">
+            <div class="modal-body p-4 text-center bg-white">
+                <p class="fs-5 fw-bold text-dark mb-0">
+                    ¿Tiene Alguna Observación Sobre el Subsidio?
+                </p>
+            </div>
+            <div class="modal-footer d-flex justify-content-between">
+                <button type="button" class="btn btn-outline-secondary btn-sm rounded-pill px-3" data-bs-dismiss="modal">Salir</button>
+                <div>
+                    <!-- Al presionar NO: pasa directo al 4° estado (Registro de pago) -->
+                    <button type="button" id="btnObsNo" class="btn btn-secondary btn-sm rounded-pill px-3">No</button>
+                    <!-- Al presionar SÍ: abre el modal de subsanación -->
+                    <button type="button" id="btnObsSi" class="btn btn-success btn-sm rounded-pill px-3" data-bs-target="#exampleModalToggle2" data-bs-toggle="modal">Sí</button>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Modal 3° Estado (Subsanación si es Sí -> Vuelve a En trámite) -->
+<div class="modal fade" id="exampleModalToggle2" aria-hidden="true" tabindex="-1">
+    <div class="modal-dialog modal-dialog-centered">
+        <div class="modal-content border-0 shadow-lg rounded-4 overflow-hidden">
+            <div class="modal-header bg-success text-white py-3 px-4">
+                <h5 class="modal-title"><i class="bi bi-pencil-square"></i> Subsanar Subsidio</h5>
+                <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <form id="formSubsanar" enctype="multipart/form-data">
+                <input type="hidden" name="id_subs" id="subsanar_id_subs">
+                <div class="modal-body p-4">
+                    <div class="mb-3">
+                        <label class="form-label fw-bold text-secondary">Días de plazo para subsanación:</label>
+                        <input type="number" name="diasPlazo" id="subsanar_diasPlazo" class="form-control" min="1" required>
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label fw-bold text-secondary">Motivo de la observación:</label>
+                        <textarea class="form-control" name="motivo" id="subsanar_motivo" rows="2" required></textarea>
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label fw-bold text-secondary">PDF de la observación:</label>
+                        <input class="form-control" type="file" name="archivo" id="subsanar_archivo" accept=".pdf" required>
+                    </div> 
+                </div>
+                <div class="modal-footer d-flex justify-content-between">
+                    <button type="button" class="btn btn-outline-secondary btn-sm rounded-pill px-3" data-bs-target="#exampleModalToggle" data-bs-toggle="modal">Volver</button>
+                    <div>
+                        <button type="button" class="btn btn-secondary btn-sm rounded-pill px-3" data-bs-dismiss="modal">Cancelar</button>
+                        <button type="submit" class="btn btn-success btn-sm rounded-pill px-3">Continuar</button>
+                    </div>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+
+<!-- Modal 4° Estado: Registro de pago -->
+<div class="modal fade" id="modalRegistroPago" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog modal-dialog-centered">
+        <div class="modal-content border-0 shadow-lg rounded-4 overflow-hidden">
+            <div class="modal-header bg-success text-white py-3 px-4">
+                <h5 class="modal-title fs-6 fw-bold">Registro de pago</h5>
+                <button type="button" class="btn-close btn-close-white shadow-none" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <form id="formRegistroPago" enctype="multipart/form-data">
+                <input type="hidden" name="id_subs" id="pago_id_subs">
+                <div class="modal-body p-4">
+                    <div class="mb-3">
+                        <label class="form-label fw-bold text-secondary">Monto pagado por EsSalud:</label>
+                        <input type="number" step="0.01" name="monto" id="pago_monto" class="form-control" placeholder="0.00" required>
+                    </div>
+
+                    <div class="mb-3">
+                        <label class="form-label fw-bold text-secondary">Voucher (PDF o imagen):</label>
+                        <input class="form-control" type="file" name="voucher" id="pago_voucher" accept=".pdf,.jpg,.jpeg,.png" required>
+                    </div> 
+                </div>
+                <div class="modal-footer bg-light py-2 px-4 border-0">
+                    <button type="button" class="btn btn-secondary btn-sm rounded-pill px-3" data-bs-dismiss="modal">Cerrar</button>
+                    <button type="submit" class="btn btn-success btn-sm rounded-pill px-3">Continuar</button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+
+<!-- Modal 5° Estado: Conciliación -->
+<div class="modal fade" id="modalConciliacion" tabindex="-1" aria-hidden="true" data-bs-backdrop="static">
+    <div class="modal-dialog modal-dialog-centered">
+        <div class="modal-content border-0 shadow-lg rounded-4 overflow-hidden">
+            <div class="modal-header bg-dark text-white py-3 px-4">
+                <h5 class="modal-title fw-bold fs-6">
+                    <i class="fas fa-info-circle me-2"></i> Tesorería - Conciliación
+                </h5>
+                <button type="button" class="btn-close btn-close-white shadow-none" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <input type="hidden" id="conciliacion_id_subs">
+            <div class="modal-body p-4 text-center bg-white">
+                <p class="fs-6 text-dark mb-0">
+                    Por favor, confirmar si el pago fue realizado a la cuenta bancaria correspondiente y si la transacción quedó registrada correctamente.
+                </p>
+            </div>
+            <div class="modal-footer bg-light py-3 px-4 justify-content-center border-0">
+                <button type="button" class="btn btn-outline-secondary px-4 rounded-pill py-2" data-bs-dismiss="modal">Pendiente</button>
+                <button type="button" id="btnContinuarConciliacion" class="btn btn-dark px-4 rounded-pill shadow-sm py-2 fw-semibold">Realizado</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<?php include_once "includes/footer.php"; ?>
+
+<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+<script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
+<script src="https://cdn.datatables.net/1.13.6/js/jquery.dataTables.min.js"></script>
+<script src="https://cdn.datatables.net/1.13.6/js/dataTables.bootstrap5.min.js"></script>
+
+<script>
+    $(document).ready(function() {
+        var table = $('#tablaInventario').DataTable({
+            "paging": true,
+            "pageLength": 5,
+            "lengthChange": false,
+            "ordering": false,
+            "info": false,
+            "searching": true,
+            "language": {
+                "paginate": { "previous": "Anterior", "next": "Siguiente" },
+                "info": "Mostrando _START_ a _END_ de _TOTAL_ registros",
+                "search": "Buscar:",
+                "zeroRecords": "No se encontraron registros"
+            }
+        });
+
+        // Función para actualizar visualmente la línea de tiempo de una fila sin dejar saltar pasos
+        function actualizarTimelineFila(idSubs, nuevoIndice, marcarTodoCompletado = false) {
+            var $timeline = $('.timeline-steps[data-id="' + idSubs + '"]');
+            $timeline.attr('data-indice-actual', nuevoIndice);
+
+            $timeline.find('button.timeline-step').each(function() {
+                var idx = parseInt($(this).data('index'));
+                $(this).attr('data-actual', nuevoIndice);
+                $(this).removeClass('completed active locked-step');
+
+                if (marcarTodoCompletado || idx < nuevoIndice) {
+                    $(this).addClass('completed').prop('disabled', false);
+                    $(this).find('.circle').html('<i class="bi bi-check-lg"></i>');
+                } else if (idx === nuevoIndice) {
+                    $(this).addClass('active').prop('disabled', false);
+                    $(this).find('.circle').html('<i class="bi bi-dot"></i>');
+                } else {
+                    $(this).addClass('locked-step').prop('disabled', true);
+                    $(this).find('.circle').text(idx + 1);
+                }
+            });
+        }
+
+        // Control de clic secuencial: solo abre si el paso es el actual o uno ya completado
+        $('#tablaInventario').on('click', 'button.timeline-step', function() {
+            var indexPaso = parseInt($(this).data('index'));
+            var indiceActual = parseInt($(this).closest('.timeline-steps').attr('data-indice-actual'));
+
+            if (indexPaso > indiceActual || $(this).prop('disabled')) {
+                return false; // Bloquea el avance si no se han completado los pasos previos
+            }
+
+            var targetModalSelector = $(this).data('target-modal');
+            var idSubs = $(this).data('id-subs');
+            var modalEl = document.querySelector(targetModalSelector);
+
+            if (modalEl) {
+                // Cargar el id_subs en el modal correspondiente
+                $(modalEl).attr('data-id-subs', idSubs);
+                $('#tramite_id_subs, #obs_id_subs, #subsanar_id_subs, #pago_id_subs, #conciliacion_id_subs').val(idSubs);
+
+                var bsModal = bootstrap.Modal.getOrCreateInstance(modalEl);
+                bsModal.show();
+            }
+        });
+
+        // 2° Paso: En trámite -> Valida campos obligatorios y habilita 3° Observado
+        $('#formEnTramite').on('submit', function(e) {
+            e.preventDefault();
+            var idSubs = $('#tramite_id_subs').val();
+            bootstrap.Modal.getInstance(document.getElementById('modalEnTramite')).hide();
+            actualizarTimelineFila(idSubs, 2); // Habilita el índice 2 (Observado)
+        });
+
+        // 3° Paso: Observado -> Si presiona NO, pasa directo al 4° Registro de pago (índice 3)
+        $('#btnObsNo').on('click', function() {
+            var idSubs = $('#obs_id_subs').val();
+            bootstrap.Modal.getInstance(document.getElementById('exampleModalToggle')).hide();
+            actualizarTimelineFila(idSubs, 3); // Habilita el índice 3 (Registro de pago)
+        });
+
+        // 3° Paso: Observado -> Si presiona SÍ y subsana, vuelve a 2° En trámite (índice 1)
+        $('#formSubsanar').on('submit', function(e) {
+            e.preventDefault();
+            var idSubs = $('#subsanar_id_subs').val();
+            bootstrap.Modal.getInstance(document.getElementById('exampleModalToggle2')).hide();
+            actualizarTimelineFila(idSubs, 1); // Vuelve al índice 1 (En trámite)
+        });
+
+        // 4° Paso: Registro de pago -> Valida monto y voucher y habilita 5° Conciliación (índice 4)
+        $('#formRegistroPago').on('submit', function(e) {
+            e.preventDefault();
+            var idSubs = $('#pago_id_subs').val();
+            bootstrap.Modal.getInstance(document.getElementById('modalRegistroPago')).hide();
+            actualizarTimelineFila(idSubs, 4); // Habilita el índice 4 (Conciliación)
+        });
+
+        // 5° Paso: Conciliación -> Al confirmar "Realizado", marca todo el flujo como completado
+        $('#btnContinuarConciliacion').on('click', function() {
+            var idSubs = $('#conciliacion_id_subs').val();
+            bootstrap.Modal.getInstance(document.getElementById('modalConciliacion')).hide();
+            actualizarTimelineFila(idSubs, 4, true);
+        });
+
+        const clienteSelect = $('#cliente');
+        const trabajadorSelect = $('#trabajador');
+
+        clienteSelect.on('change', function() {
+            var val = $(this).val();
+            if (val !== "") { 
+                trabajadorSelect.val("").prop('disabled', true); 
+            } else { 
+                trabajadorSelect.prop('disabled', false); 
+            }
+            table.column(0).search(val === "all" || val === "" ? "" : $("option:selected", this).text()).draw();
+        });
+
+        trabajadorSelect.on('change', function() {
+            var val = $(this).val();
+            if (val !== "") { 
+                clienteSelect.val("").prop('disabled', true); 
+            } else { 
+                clienteSelect.prop('disabled', false); 
+            }
+            table.column(1).search(val === "" ? "" : $("option:selected", this).text()).draw();
+        });
+
+        $('#resetFiltro').on('click', function() {
+            $('#filtroForm')[0].reset();
+            clienteSelect.prop('disabled', false);
+            trabajadorSelect.prop('disabled', false);
+            table.search('').columns().search('').draw();
+        });
+    });
+</script>
+</body>
+</html>
+
+
+
+
