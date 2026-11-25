@@ -1,0 +1,2554 @@
+<?php
+session_start();
+include "../conexion.php";
+include "includes/headerSub.php";
+?>
+
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Agrupar Subsidios</title>
+
+    <style>
+        .modal.fade:not(.show) {
+            display: none !important;
+        }
+
+        .timeline-steps {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            position: relative;
+            min-width: 280px;
+            padding: 5px 0;
+        }
+        .timeline-steps::before {
+            content: '';
+            position: absolute;
+            top: 50%;
+            left: 15px;
+            right: 15px;
+            height: 3px;
+            background: #e9ecef;
+            transform: translateY(-50%);
+            z-index: 1;
+        }
+        .timeline-step {
+            position: relative;
+            z-index: 2;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            background: transparent;
+            border: none;
+            padding: 0;
+            cursor: pointer;
+        }
+        .timeline-step .circle {
+            width: 30px;
+            height: 30px;
+            border-radius: 50%;
+            background-color: #6c757d;
+            color: white;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 12px;
+            font-weight: bold;
+            transition: all 0.3s ease;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+        .timeline-step.completed .circle {
+            background-color: #198754; 
+        }
+        .timeline-step.active .circle {
+            background-color: #0d6efd; 
+            transform: scale(1.1);
+            box-shadow: 0 0 0 4px rgba(13, 110, 253, 0.25);
+        }
+        .timeline-step .label {
+            font-size: 10px;
+            margin-top: 4px;
+            color: #6c757d;
+            font-weight: 600;
+            white-space: nowrap;
+        }
+        .timeline-step.active .label {
+            color: #0d6efd;
+        }
+        .timeline-step.completed .label {
+            color: #198754;
+        }
+    </style>
+</head>
+<body>
+    
+<div class="container-fluid px-4 py-4" style="background-color: #eaebec; min-height: 90vh;">
+    
+    <!-- Encabezado -->
+    <div class="card border-0 shadow-sm rounded-4 mb-2 p-1 bg-white border-start border-secondary border-4">
+        <div>
+            <h3 class="fw-bold text-purple mb-1 text-center" style='color: #8527c4;'>AGRUPACIÓN DE SUBSIDIOS</h3>
+        </div>
+    </div>
+
+    <!-- Filtros -->
+    <div class="card border-0 shadow-sm rounded-4 mb-4 p-4 bg-white">
+        <form id="filtroForm">
+            <div class="row align-items-end g-3">
+                <div class="col-md-4">
+                    <label for="cliente" class="form-label text-secondary fw-bold small">Filtro por Cliente</label>
+                    <select id="cliente" name="cliente" class="form-select shadow-none border-light bg-light py-2 rounded-3">
+                        <option value="">Selecciona una opción</option>
+                        <?php
+                        $query_cli2 = "SELECT cli_iId, cli_vcRazonSocial FROM cliente WHERE cli_iId NOT IN (2, 3, 7, 8, 11, 16, 17, 18)";
+                        $result_cli2 = $conn ? $conn->query($query_cli2) : false;
+                        if ($result_cli2 && $result_cli2->num_rows > 0) {
+                            while ($row_cli2 = $result_cli2->fetch_assoc()) {
+                                echo '<option value="' . htmlspecialchars($row_cli2['cli_vcRazonSocial']) . '">' . htmlspecialchars($row_cli2['cli_vcRazonSocial']) . '</option>';
+                            }
+                        }
+                        ?>
+                    </select>
+                </div>
+                
+                <div class="col-md-4">
+                    <label for="trabajador" class="form-label text-secondary fw-bold small">Filtro por Trabajador</label>
+                    <select id="trabajador" name="trabajador" class="form-select shadow-none border-light bg-light py-2 rounded-3">
+                        <option value="">Selecciona una opción</option>
+                        <?php
+                        $query_tra = "SELECT nombre_trabajador FROM subsidios WHERE nombre_trabajador IS NOT NULL GROUP BY nombre_trabajador ORDER BY nombre_trabajador ASC";
+                        $result_tra = $conn ? $conn->query($query_tra) : false;
+                        if ($result_tra && $result_tra->num_rows > 0) {
+                            while ($row_tra = $result_tra->fetch_assoc()) {
+                                echo '<option value="' . htmlspecialchars($row_tra['nombre_trabajador']) . '">' . htmlspecialchars($row_tra['nombre_trabajador']) . '</option>';
+                            }
+                        }
+                        ?>
+                    </select>
+                </div>
+
+                <div class="col-md-2 text-md-end">
+                    <button type="button" class="btn btn-outline-dark px-4 shadow-sm w-100 rounded-3 py-2 fw-semibold" id="resetFiltro">
+                        <i class="fas fa-eraser me-1"></i> Limpiar
+                    </button>
+                </div>
+                
+                <div class="col-md-2 text-md-end">
+                    <button type="button" id="descargarExcel" class="btn btn-success shadow-sm px-4 rounded-3 text-white fw-semibold py-2">
+                        <i class="fas fa-file-excel me-2"></i> Exportar Excel
+                    </button>
+                </div>
+            </div>
+        </form>
+    </div>
+
+    <!-- Tabla -->
+    <div class="card border-0 shadow-sm rounded-4 p-4 bg-white">
+        <div class="table-responsive">
+            <table class="table table-striped table-bordered table-hover align-middle mb-0" id="tablaInventario">
+                <thead class="text-muted small text-uppercase bg-light sticky-top">
+                    <tr>
+                        <th class="text-center py-3 fw-bold" style="background-color: #000000; color: white; height: 40px; border-radius: 7px 0 0 0px; width: 14%;">Matriz</th>
+                        <th class="text-center py-3 fw-bold" style="background-color: #000000; color: white; height: 40px; width: 14%;">Cliente</th>
+                        <th class="text-center py-3 fw-bold" style="background-color: #000000; color: white; height: 40px; width: 16%;">Nombre Trabajador</th>
+                        <th class="text-center py-3 fw-bold" style="background-color: #000000; color: white; height: 40px; width: 8%;">DNI</th>
+                        <th class="text-center py-3 fw-bold" style="background-color: #000000; color: white; height: 40px; width: 11%;">Fechas</th>
+                        <th class="text-center py-3 fw-bold" style="background-color: #000000; color: white; height: 40px; width: 8%;">Total Días</th>
+                        <th class="text-center py-3 fw-bold" style="background-color: #000000; color: white; height: 40px; border-radius: 0 7px 7px 0; width: 29%;">Flujo del Subsidio</th>
+                    </tr>
+                </thead>
+                <tbody class="border-top-0">
+                    <?php
+                    $tieneColEstado = false;
+                    $checkCol = @mysqli_query($conn, "SHOW COLUMNS FROM subsidios LIKE 'estado'");
+                    if ($checkCol && mysqli_num_rows($checkCol) > 0) {
+                        $tieneColEstado = true;
+                    }
+
+                    $selectEstado = $tieneColEstado ? "s.estado," : "";
+
+                    $query = "SELECT 
+                                    s.id_subs,
+                                    COALESCE(MIN(rel.matriz), s.empresa) AS matriz,
+                                    COALESCE(MIN(rel.cliente), s.cliente, '') AS cliente,
+                                    s.nombre_trabajador,
+                                    s.numdocumento,
+                                    s.fecha_inicio,
+                                    s.fecha_fin,
+                                    {$selectEstado}
+                                    totales.total_dias_trabajador AS total_dias
+                              FROM subsidios s
+                              LEFT JOIN (
+                                  SELECT DISTINCT
+                                      cl.cli_vcRazonSocial AS matriz,
+                                      cli.cli_vcRazonSocial AS cliente
+                                  FROM cliente AS cli
+                                  INNER JOIN contrato AS c ON c.cli_iId = cli.cli_iId
+                                  INNER JOIN contrato_empresa AS cem ON cem.con_iId = c.con_iId
+                                  INNER JOIN cliente AS cl ON cl.cli_iId = cem.cli_iId
+                              ) rel ON (rel.matriz = s.empresa OR rel.cliente = s.empresa OR rel.cliente = s.cliente)
+                              INNER JOIN (
+                                  SELECT 
+                                      numdocumento,
+                                      SUM(DATEDIFF(fecha_fin, fecha_inicio) + 1) AS total_dias_trabajador
+                                  FROM subsidios
+                                  GROUP BY numdocumento
+                              ) totales ON s.numdocumento = totales.numdocumento
+                              GROUP BY
+                                  s.id_subs,
+                                  s.empresa,
+                                  s.cliente,
+                                  s.nombre_trabajador,
+                                  s.numdocumento,
+                                  s.fecha_inicio,
+                                  s.fecha_fin,
+                                  " . ($tieneColEstado ? "s.estado," : "") . "
+                                  totales.total_dias_trabajador
+                              ORDER BY s.id_subs DESC";
+
+                    $tieneFilas = false;
+                    $errorSql = "";
+
+                    try {
+                        $query_run = mysqli_query($conn, $query);
+                        if ($query_run && mysqli_num_rows($query_run) > 0) {
+                            $tieneFilas = true;
+                            while ($dni = mysqli_fetch_assoc($query_run)) {
+                                $estadoActual = strtolower(trim($dni['estado'] ?? 'notificado por planillas'));
+                                $pasos = [
+                                    'notificado por planillas',
+                                    'en tramite',
+                                    'observado',
+                                    'registro de pago',
+                                    'conciliacion'
+                                ];
+                                $etiquetas = [
+                                    'notificado por planillas' => 'Notificado por Planillas',
+                                    'en tramite' => 'En trámite',
+                                    'observado' => 'Observado',
+                                    'registro de pago' => 'Registro de pago',
+                                    'conciliacion' => 'Conciliación'
+                                ];
+                                $modales = [
+                                    'notificado por planillas' => '#Notificado por Planillas',
+                                    'en tramite' => '#modalEnTramite',
+                                    'observado' => '#exampleModalToggle',
+                                    'registro de pago' => '#modalRegistroPago',
+                                    'conciliacion' => '#modalConciliacion'
+                                ];
+
+                                $indiceActual = array_search($estadoActual, $pasos);
+                                if ($indiceActual === false) {
+                                    $indiceActual = 0;
+                                }
+                    ?>
+                                <tr>
+                                    <td class="text-center text-secondary small"><?= htmlspecialchars($dni['matriz'] ?? '') ?></td>
+                                    <td class="text-center text-secondary small"><?= htmlspecialchars($dni['cliente'] ?? '') ?></td>
+                                    <td class="text-center text-secondary fw-bold small"><?= htmlspecialchars($dni['nombre_trabajador'] ?? '') ?></td>
+                                    <td class="text-center">
+                                        <span class="fs-6 fw-bold">
+                                            <code><?= htmlspecialchars($dni['numdocumento'] ?? '') ?></code>
+                                        </span>
+                                    </td>
+                                    <td class="text-center">
+                                        <span class="text-secondary fw-bold small">
+                                            Inicio: <code><?= htmlspecialchars($dni['fecha_inicio'] ?? '') ?></code><br>
+                                            Fin: <code><?= htmlspecialchars($dni['fecha_fin'] ?? '') ?></code>
+                                        </span>
+                                    </td>
+                                    <td class="text-center">
+                                        <span class="badge bg-success-subtle text-secondary border border-secondary-subtle px-3 py-2 rounded-pill fw-bold">
+                                            <?= htmlspecialchars($dni['total_dias'] ?? 0) ?> días
+                                        </span>
+                                    </td>
+                                    <td>
+                                        <div class="timeline-steps" data-id="<?= htmlspecialchars($dni['id_subs'] ?? '') ?>">
+                                            <?php foreach ($pasos as $index => $paso): 
+                                                $claseEstado = "";
+                                                if ($index < $indiceActual) {
+                                                    $claseEstado = "completed";
+                                                } elseif ($index === $indiceActual) {
+                                                    $claseEstado = "active";
+                                                }
+                                            ?>
+                                                <button type="button"
+                                                        class="timeline-step <?= $claseEstado ?>"
+                                                        data-paso="<?= htmlspecialchars($paso) ?>"
+                                                        data-index="<?= $index ?>"
+                                                        data-actual="<?= $indiceActual ?>"
+                                                        data-id-subs="<?= htmlspecialchars($dni['id_subs'] ?? '') ?>"
+                                                        data-trabajador="<?= htmlspecialchars($dni['nombre_trabajador'] ?? '') ?>"
+                                                        data-dias="<?= htmlspecialchars($dni['total_dias'] ?? 0) ?>"
+                                                        data-target-modal="<?= $modales[$paso] ?>"
+                                                        title="<?= htmlspecialchars($etiquetas[$paso]) ?>">
+                                                    <div class="circle">
+                                                        <?php if ($index < $indiceActual): ?>
+                                                            <i class="bi bi-check-lg"></i>
+                                                        <?php elseif ($index === $indiceActual): ?>
+                                                            <i class="bi bi-dot"></i>
+                                                        <?php else: ?>
+                                                            <?= $index + 1 ?>
+                                                        <?php endif; ?>
+                                                    </div>
+                                                    <span class="label"><?= htmlspecialchars($etiquetas[$paso]) ?></span>
+                                                </button>
+                                            <?php endforeach; ?>
+                                        </div>
+                                    </td>
+                                </tr>
+                    <?php
+                            }
+                        } elseif (!$query_run) {
+                            $errorSql = mysqli_error($conn);
+                        }
+                    } catch (Throwable $e) {
+                        $errorSql = $e->getMessage();
+                    }
+
+                    if (!$tieneFilas) {
+                        if (!empty($errorSql)) {
+                            echo '<tr><td colspan="7" class="text-center py-4 text-danger fw-semibold">Error en la consulta de subsidios: ' . htmlspecialchars($errorSql) . '</td></tr>';
+                        } else {
+                            echo '<tr><td colspan="7" class="text-center py-5 text-muted fst-italic">No se encontraron registros de subsidios activos</td></tr>';
+                        }
+                    }
+                    ?>
+                </tbody>
+            </table>
+        </div>
+    </div>
+</div>
+
+<!-- Modal En trámite -->
+<div class="modal fade" id="modalEnTramite" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog modal-dialog-centered">
+        <div class="modal-content border-0 shadow-lg rounded-4 overflow-hidden">
+            <div class="modal-header bg-info text-white py-3 px-4">
+                <h5 class="modal-title fs-6 fw-bold">En trámite</h5>
+                <button type="button" class="btn-close btn-close-white shadow-none" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <form id="formEnTramite" method="POST" enctype="multipart/form-data">
+                <div class="modal-body p-4">
+                    <input type="hidden" name="id_subs" class="input-id-subs">
+
+                    <div class="mb-3">
+                        <label class="form-label fw-bold text-secondary">Fecha de presentación:</label>
+                        <input type="date" name="fechaPresentacion" class="form-control" required>
+                    </div>
+
+                    <div class="mb-3">
+                        <label class="form-label fw-bold text-secondary">N° Expediente:</label>
+                        <input type="text" name="numExpediente" class="form-control" required>
+                    </div>
+
+                    <div class="mb-3">
+                        <label class="form-label fw-bold text-secondary">Fecha de cobro (posterior):</label>
+                        <input type="date" name="fechaCobro" class="form-control">
+                    </div>
+
+                    <div class="mb-3">
+                        <label class="form-label fw-bold text-secondary">Archivo adjunto (PDF):</label>
+                        <input class="form-control" type="file" name="archivo" accept=".pdf">
+                    </div> 
+                </div>
+                <div class="modal-footer bg-light py-2 px-4 border-0">
+                    <button type="button" class="btn btn-secondary btn-sm rounded-pill px-3" data-bs-dismiss="modal">Cerrar</button>
+                    <button type="submit" id="btnGuardarEnTramite" class="btn btn-info btn-sm rounded-pill px-3 text-white">Continuar</button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+
+<!-- Modal Observado -->
+<div class="modal fade" id="exampleModalToggle" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog modal-dialog-centered">
+        <div class="modal-content border-0 shadow-lg rounded-4 overflow-hidden">
+            <div class="modal-header bg-success text-white py-3 px-4">
+                <h5 class="modal-title"><i class="bi bi-exclamation-diamond"></i> Observación</h5>
+                <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <div class="modal-body p-4 text-center bg-white">
+                <input type="hidden" class="input-id-subs">
+                <p class="fs-5 fw-bold text-dark mb-0">
+                    ¿Tiene Alguna Observación Sobre el Subsidio?
+                </p>
+            </div>
+            <div class="modal-footer d-flex justify-content-between">
+                <button type="button" class="btn btn-outline-secondary btn-sm rounded-pill px-3" data-bs-dismiss="modal">Salir</button>
+                <div>
+                    <button type="button" id="btnObservadoNo" class="btn btn-secondary btn-sm rounded-pill px-3">No</button>
+                    <button type="button" id="btnObservadoSi" class="btn btn-success btn-sm rounded-pill px-3" data-bs-target="#exampleModalToggle2" data-bs-toggle="modal">Sí</button>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<div class="modal fade" id="exampleModalToggle2" aria-hidden="true" tabindex="-1">
+    <div class="modal-dialog modal-dialog-centered">
+        <div class="modal-content border-0 shadow-lg rounded-4 overflow-hidden">
+            <div class="modal-header bg-success text-white py-3 px-4">
+                <h5 class="modal-title"><i class="bi bi-pencil-square"></i> Subsanar Subsidio</h5>
+                <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <form id="formSubsanarSubsidio" method="POST" enctype="multipart/form-data">
+                <div class="modal-body p-4">
+                    <input type="hidden" name="id_subs" class="input-id-subs">
+
+                    <div class="mb-3">
+                        <label class="form-label fw-bold text-secondary">Días para Subsanación:</label>
+                        <input type="number" name="diasSubsanacion" class="form-control" min="1" required>
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label fw-bold text-secondary">Motivo:</label>
+                        <textarea class="form-control" name="motivoObservacion" rows="2" required></textarea>
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label fw-bold text-secondary">Archivo adjunto (PDF):</label>
+                        <input class="form-control" type="file" name="archivo" accept=".pdf">
+                    </div> 
+                </div>
+                <div class="modal-footer d-flex justify-content-between">
+                    <button type="button" class="btn btn-outline-secondary btn-sm rounded-pill px-3" data-bs-target="#exampleModalToggle" data-bs-toggle="modal">Volver</button>
+                    <div>
+                        <button type="button" class="btn btn-secondary btn-sm rounded-pill px-3" data-bs-dismiss="modal">Cancelar</button>
+                        <button type="submit" class="btn btn-success btn-sm rounded-pill px-3">Continuar</button>
+                    </div>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+
+<!-- Modal Registro de pago -->
+<div class="modal fade" id="modalRegistroPago" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog modal-dialog-centered">
+        <div class="modal-content border-0 shadow-lg rounded-4 overflow-hidden">
+            <div class="modal-header bg-success text-white py-3 px-4">
+                <h5 class="modal-title fs-6 fw-bold">Registro de pago</h5>
+                <button type="button" class="btn-close btn-close-white shadow-none" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <form id="formRegistroPago" method="POST" enctype="multipart/form-data">
+                <div class="modal-body p-4">
+                    <input type="hidden" name="id_subs" class="input-id-subs">
+
+                    <div class="mb-3">
+                        <label class="form-label fw-bold text-secondary">Monto pagado por EsSalud:</label>
+                        <input type="number" step="0.01" min="0" name="monto" class="form-control" required>
+                    </div>
+
+                    <div class="mb-3">
+                        <label class="form-label fw-bold text-secondary">Archivo adjunto (voucher):</label>
+                        <input class="form-control" type="file" name="voucher">
+                    </div> 
+                </div>
+                <div class="modal-footer bg-light py-2 px-4 border-0">
+                    <button type="button" class="btn btn-secondary btn-sm rounded-pill px-3" data-bs-dismiss="modal">Cerrar</button>
+                    <button type="submit" class="btn btn-success btn-sm rounded-pill px-3">Continuar</button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+
+<!-- 5° Modal: Conciliación -->
+<div class="modal fade" id="modalConciliacion" tabindex="-1" aria-hidden="true" data-bs-backdrop="static">
+    <div class="modal-dialog modal-dialog-centered">
+        <div class="modal-content border-0 shadow-lg rounded-4 overflow-hidden">
+            <div class="modal-header bg-dark text-white py-3 px-4">
+                <h5 class="modal-title fw-bold fs-6">
+                    <i class="fas fa-info-circle me-2"></i> Tesorería - Conciliacion
+                </h5>
+                <button type="button" class="btn-close btn-close-white shadow-none" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <div class="modal-body p-4 text-center bg-white">
+                <input type="hidden" class="input-id-subs">
+                <p class="fs-6 text-dark mb-0">
+                   Por favor, confirmar si el pago fue realizado a la cuenta bancaria correspondiente y si la transacción quedó registrada correctamente.
+                </p>
+            </div>
+            <div class="modal-footer bg-light py-3 px-4 justify-content-center border-0">
+                <button type="button" class="btn btn-outline-secondary px-4 rounded-pill py-2" data-bs-dismiss="modal">Pendiente</button>
+                <button type="button" id="btnContinuarConciliacion" class="btn btn-dark px-4 rounded-pill shadow-sm py-2 fw-semibold">Realizado</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<?php include_once "includes/footer.php"; ?>
+
+<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+<script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
+<script src="https://cdn.datatables.net/1.13.6/js/jquery.dataTables.min.js"></script>
+<script src="https://cdn.datatables.net/1.13.6/js/dataTables.bootstrap5.min.js"></script>
+
+<script>
+    $(document).ready(function() {
+        let subsidioActivo = {
+            idSubs: null,
+            indexActual: 0,
+            esActualizacionEnTramite: false
+        };
+
+        const modalEnTramiteEl = document.querySelector('#modalEnTramite');
+        const $formEnTramite = $('#formEnTramite');
+        const $inputFechaPresentacion = $formEnTramite.find('input[name="fechaPresentacion"]');
+        const $inputNumExpediente = $formEnTramite.find('input[name="numExpediente"]');
+        const $inputFechaCobro = $formEnTramite.find('input[name="fechaCobro"]');
+        const $inputArchivoTramite = $formEnTramite.find('input[name="archivo"]');
+
+        function configurarModalEnTramite(soloFechaCobro) {
+            $formEnTramite[0].reset();
+
+            if (soloFechaCobro) {
+                $inputFechaPresentacion.prop('disabled', true).prop('required', false);
+                $inputNumExpediente.prop('disabled', true).prop('required', false);
+                $inputArchivoTramite.prop('disabled', true).prop('required', false);
+                $inputFechaCobro.prop('disabled', false).prop('readonly', false).prop('required', true);
+            } else {
+                $inputFechaPresentacion.prop('disabled', false).prop('required', true);
+                $inputNumExpediente.prop('disabled', false).prop('required', true);
+                $inputArchivoTramite.prop('disabled', false).prop('required', false);
+                $inputFechaCobro.prop('disabled', false).prop('readonly', false).prop('required', false);
+            }
+        }
+
+        if (modalEnTramiteEl) {
+            modalEnTramiteEl.addEventListener('hidden.bs.modal', function() {
+                configurarModalEnTramite(false);
+                subsidioActivo.esActualizacionEnTramite = false;
+            });
+        }
+
+        var table = $('#tablaInventario').DataTable({
+            "paging": true,
+            "pageLength": 10,
+            "lengthChange": false,
+            "ordering": false,
+            "info": false,
+            "searching": true,
+            "language": {
+                "paginate": { "previous": "Anterior", "next": "Siguiente" },
+                "info": "Mostrando _START_ a _END_ de _TOTAL_ registros",
+                "search": "Buscar:",
+                "zeroRecords": "No se encontraron registros"
+            }
+        });
+
+        function asignarIdSubsModales(idSubs) {
+            $('.input-id-subs').val(idSubs);
+            $('.modal').attr('data-id-subs', idSubs);
+        }
+
+        function enviarActualizacionEstado(idSubs, nuevoEstado, mensajeConfirmacion = null, payloadExtra = null) {
+            if (!idSubs) {
+                alert('No se identificó el subsidio seleccionado.');
+                return;
+            }
+
+            if (mensajeConfirmacion && !confirm(mensajeConfirmacion)) {
+                return;
+            }
+
+            const formData = payloadExtra instanceof FormData ? payloadExtra : new FormData();
+            formData.set('id_subs', idSubs);
+            formData.set('nuevo_estado', nuevoEstado);
+
+            fetch('procedimientos/subsidios_controller.php', {
+                method: 'POST',
+                body: formData
+            })
+            .then(async response => {
+                if (response.ok) {
+                    window.location.reload();
+                } else {
+                    const errorTexto = await response.text();
+                    alert('No se pudo actualizar el estado en el servidor: ' + errorTexto);
+                }
+            })
+            .catch(() => {
+                alert('Error de conexión al intentar guardar el cambio de estado.');
+            });
+        }
+
+        // Control secuencial del timeline
+        $('#tablaInventario').on('click', '.timeline-step', function() {
+            const pasoDestino = $(this).data('paso');
+            const indexDestino = parseInt($(this).data('index'), 10);
+            const indexActual = parseInt($(this).data('actual'), 10);
+            const idSubs = $(this).data('id-subs');
+            const trabajador = $(this).data('trabajador');
+            const dias = $(this).data('dias');
+            const targetModalSelector = $(this).data('target-modal');
+
+            // 1. Bloquear retroceso
+            if (indexDestino < indexActual) {
+                alert('No está permitido retroceder a un estado anterior.');
+                return;
+            }
+
+            // 2. Bloquear si intenta saltar etapas
+            if (indexDestino > indexActual + 1) {
+                alert('Debe completar el paso anterior antes de avanzar a este estado.');
+                return;
+            }
+
+            // 3. Si está en el mismo estado actual
+            if (indexDestino === indexActual) {
+                // Excepción en "En trámite" (índice 1): permitir abrir modal solo para registrar fecha de cobro posterior sin cambiar estado
+                if (pasoDestino === 'en tramite') {
+                    subsidioActivo = { idSubs, indexActual, esActualizacionEnTramite: true };
+                    asignarIdSubsModales(idSubs);
+                    configurarModalEnTramite(true);
+                    if (modalEnTramiteEl) {
+                        bootstrap.Modal.getOrCreateInstance(modalEnTramiteEl).show();
+                    }
+                    return;
+                }
+
+                alert('Este subsidio ya se encuentra en este estado.');
+                return;
+            }
+
+            // 4. Avance válido al siguiente paso (indexDestino === indexActual + 1)
+            subsidioActivo = { idSubs, indexActual, esActualizacionEnTramite: false };
+            asignarIdSubsModales(idSubs);
+
+            if (targetModalSelector === '#modalEnTramite') {
+                configurarModalEnTramite(false);
+            }
+
+            const modalEl = document.querySelector(targetModalSelector);
+            if (modalEl) {
+                $(modalEl).find('.modal-body')
+                    .attr('data-id-subs', idSubs)
+                    .attr('data-trabajador', trabajador)
+                    .attr('data-dias', dias);
+                bootstrap.Modal.getOrCreateInstance(modalEl).show();
+            } else {
+                enviarActualizacionEstado(
+                    idSubs,
+                    pasoDestino,
+                    `¿Desea avanzar el subsidio al estado "${pasoDestino.toUpperCase()}"?`
+                );
+            }
+        });
+
+        // Guardar modal En trámite (avanza a "en tramite" o actualiza fecha de cobro si ya estaba en "en tramite")
+        $('#formEnTramite').on('submit', function(e) {
+            e.preventDefault();
+            const idSubs = $(this).find('.input-id-subs').val() || subsidioActivo.idSubs;
+            const estadoDestino = 'en tramite';
+            const fd = new FormData(this);
+            fd.set('accion', 'guardar_en_tramite');
+            fd.set('mantener_estado', subsidioActivo.esActualizacionEnTramite ? '1' : '0');
+            enviarActualizacionEstado(idSubs, estadoDestino, null, fd);
+        });
+
+        // Excepción Observado -> NO: pasa directamente a "registro de pago"
+        $('#btnObservadoNo').on('click', function() {
+            const idSubs = $('#exampleModalToggle .input-id-subs').val() || subsidioActivo.idSubs;
+            const fd = new FormData();
+            fd.set('accion', 'observado_no');
+            enviarActualizacionEstado(
+                idSubs,
+                'registro de pago',
+                'Sin observación registrada. ¿Desea avanzar directamente a "REGISTRO DE PAGO"?',
+                fd
+            );
+        });
+
+        // Excepción Observado -> SÍ: subsanar y volver a "en tramite"
+        $('#formSubsanarSubsidio').on('submit', function(e) {
+            e.preventDefault();
+            const idSubs = $(this).find('.input-id-subs').val() || subsidioActivo.idSubs;
+            const fd = new FormData(this);
+            fd.set('accion', 'subsanar_observado');
+            fd.set('subsanado', '1');
+            enviarActualizacionEstado(idSubs, 'en tramite', null, fd);
+        });
+
+        // Guardar modal Registro de pago -> pasa a "conciliacion"
+        $('#formRegistroPago').on('submit', function(e) {
+            e.preventDefault();
+            const idSubs = $(this).find('.input-id-subs').val() || subsidioActivo.idSubs;
+            const fd = new FormData(this);
+            fd.set('accion', 'guardar_pago');
+            enviarActualizacionEstado(idSubs, 'conciliacion', null, fd);
+        });
+
+        // Confirmar modal Conciliación -> finaliza / confirma conciliación
+        $('#btnContinuarConciliacion').on('click', function() {
+            const idSubs = $('#modalConciliacion .input-id-subs').val() || subsidioActivo.idSubs;
+            const fd = new FormData();
+            fd.set('accion', 'confirmar_conciliacion');
+            enviarActualizacionEstado(
+                idSubs,
+                'conciliacion',
+                '¿Confirmar que el depósito fue verificado y conciliado por Tesorería?',
+                fd
+            );
+        });
+
+        const clienteSelect = $('#cliente');
+        const trabajadorSelect = $('#trabajador');
+
+        clienteSelect.on('change', function() {
+            var val = $(this).val();
+            if (val !== "") { 
+                trabajadorSelect.val("").prop('disabled', true); 
+            } else { 
+                trabajadorSelect.prop('disabled', false); 
+            }
+            table.column(1).search(val === "all" || val === "" ? "" : $("option:selected", this).text()).draw();
+        });
+
+        trabajadorSelect.on('change', function() {
+            var val = $(this).val();
+            if (val !== "") { 
+                clienteSelect.val("").prop('disabled', true); 
+            } else { 
+                clienteSelect.prop('disabled', false); 
+            }
+            table.column(2).search(val === "" ? "" : $("option:selected", this).text()).draw();
+        });
+
+        $('#resetFiltro').on('click', function() {
+            $('#filtroForm')[0].reset();
+            clienteSelect.prop('disabled', false);
+            trabajadorSelect.prop('disabled', false);
+            table.search('').columns().search('').draw();
+        });
+    });
+</script>
+</body>
+</html>
+
+
+
+<?php
+session_start();
+include "../../conexion.php";
+
+header('Content-Type: application/json; charset=utf-8');
+
+if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
+    http_response_code(405);
+    echo json_encode(['ok' => false, 'msg' => 'Método no permitido']);
+    exit;
+}
+
+if (!$conn) {
+    http_response_code(500);
+    echo json_encode(['ok' => false, 'msg' => 'Sin conexión a la base de datos']);
+    exit;
+}
+
+function columnaExiste(mysqli $conn, string $tabla, string $columna): bool
+{
+    $tablaEsc = $conn->real_escape_string($tabla);
+    $colEsc = $conn->real_escape_string($columna);
+    $res = $conn->query("SHOW COLUMNS FROM `{$tablaEsc}` LIKE '{$colEsc}'");
+    return ($res && $res->num_rows > 0);
+}
+
+function guardarArchivoSubido(string $campoInput, string $subcarpeta): array
+{
+    if (!isset($_FILES[$campoInput]) || $_FILES[$campoInput]['error'] === UPLOAD_ERR_NO_FILE) {
+        return ['ok' => true, 'ruta' => null];
+    }
+
+    if ($_FILES[$campoInput]['error'] !== UPLOAD_ERR_OK) {
+        return ['ok' => false, 'msg' => 'Error al recibir el archivo adjunto.'];
+    }
+
+    $nombreOriginal = basename($_FILES[$campoInput]['name']);
+    $extension = strtolower(pathinfo($nombreOriginal, PATHINFO_EXTENSION));
+    $permitidas = ['pdf', 'jpg', 'jpeg', 'png', 'webp'];
+
+    if (!in_array($extension, $permitidas, true)) {
+        return ['ok' => false, 'msg' => 'Formato de archivo no permitido (usa PDF, JPG, JPEG, PNG o WEBP).'];
+    }
+
+    $dirBase = __DIR__ . '/../uploads/subsidios/' . trim($subcarpeta, '/');
+    if (!is_dir($dirBase) && !mkdir($dirBase, 0775, true)) {
+        return ['ok' => false, 'msg' => 'No se pudo crear el directorio de archivos.'];
+    }
+
+    $nombreUnico = 'sub_' . time() . '_' . bin2hex(random_bytes(4)) . '.' . $extension;
+    $rutaFisica = $dirBase . '/' . $nombreUnico;
+
+    if (!move_uploaded_file($_FILES[$campoInput]['tmp_name'], $rutaFisica)) {
+        return ['ok' => false, 'msg' => 'No se pudo guardar el archivo en el servidor.'];
+    }
+
+    return ['ok' => true, 'ruta' => 'uploads/subsidios/' . trim($subcarpeta, '/') . '/' . $nombreUnico];
+}
+
+function actualizarEstadoSubsidioSiExiste(mysqli $conn, int $idSubs, string $estado): void
+{
+    if (!columnaExiste($conn, 'subsidios', 'estado')) {
+        return;
+    }
+    $stmt = $conn->prepare("UPDATE subsidios SET estado = ? WHERE id_subs = ?");
+    if ($stmt) {
+        $stmt->bind_param("si", $estado, $idSubs);
+        $stmt->execute();
+        $stmt->close();
+    }
+}
+
+function resolverClientePorEmpresa(mysqli $conn, string $empresa): string
+{
+    if (trim($empresa) === '') {
+        return '';
+    }
+    $sql = "SELECT cli.cli_vcRazonSocial
+            FROM cliente AS cli
+            INNER JOIN contrato AS c ON c.cli_iId = cli.cli_iId
+            INNER JOIN contrato_empresa AS cem ON cem.con_iId = c.con_iId
+            INNER JOIN cliente AS cl ON cl.cli_iId = cem.cli_iId
+            WHERE cl.cli_vcRazonSocial = ? OR cli.cli_vcRazonSocial = ?
+            LIMIT 1";
+    $stmt = $conn->prepare($sql);
+    if (!$stmt) {
+        return '';
+    }
+    $stmt->bind_param("ss", $empresa, $empresa);
+    $stmt->execute();
+    $stmt->bind_result($clienteResuelto);
+    $encontrado = $stmt->fetch();
+    $stmt->close();
+
+    return $encontrado ? trim((string)$clienteResuelto) : '';
+}
+
+function guardarEnSubReporte(mysqli $conn, int $idSubs, string $estado, array $datosExtra = []): bool
+{
+    $tieneColClienteSubs = columnaExiste($conn, 'subsidios', 'cliente');
+    $tieneColMontoDiarioSubs = columnaExiste($conn, 'subsidios', 'monto_diario');
+
+    $sqlCliente = $tieneColClienteSubs ? "COALESCE(cliente, '')" : "''";
+    $sqlMontoDiario = $tieneColMontoDiarioSubs ? "COALESCE(monto_diario, 0)" : "0";
+
+    $sqlSub = "SELECT empresa, {$sqlCliente} AS cliente, nombre_trabajador, numdocumento, fecha_inicio, fecha_fin, {$sqlMontoDiario} AS monto_diario
+               FROM subsidios
+               WHERE id_subs = ?
+               LIMIT 1";
+    $stmtSub = $conn->prepare($sqlSub);
+    if (!$stmtSub) {
+        return false;
+    }
+    $stmtSub->bind_param("i", $idSubs);
+    $stmtSub->execute();
+    $stmtSub->bind_result($empresa, $cliente, $nombres, $dni, $fechaInicio, $fechaFin, $montoDiarioSubs);
+    $encontrado = $stmtSub->fetch();
+    $stmtSub->close();
+
+    if (!$encontrado) {
+        return false;
+    }
+
+    if (trim((string)$cliente) === '') {
+        $cliente = resolverClientePorEmpresa($conn, (string)$empresa);
+    }
+
+    $totalDias = 0;
+    if (!empty($fechaInicio) && !empty($fechaFin)) {
+        $d1 = new DateTime($fechaInicio);
+        $d2 = new DateTime($fechaFin);
+        $totalDias = max(0, (int)$d1->diff($d2)->days + 1);
+    }
+
+    $montoPagado = $datosExtra['monto_pagado'] ?? null;
+    $montoDiario = ((float)$montoDiarioSubs > 0) ? (float)$montoDiarioSubs : null;
+    if ($montoDiario === null && $montoPagado !== null && $totalDias > 0) {
+        $montoDiario = round((float)$montoPagado / $totalDias, 2);
+    }
+
+    $montoTotalEsperado = ($montoDiario !== null && $totalDias > 0)
+        ? round($montoDiario * $totalDias, 2)
+        : ($montoPagado !== null ? (float)$montoPagado : null);
+
+    $fechaPresentacion = $datosExtra['fecha_presentacion'] ?? null;
+    $nExpediente = $datosExtra['n_expediente'] ?? null;
+    $fechaCobro = $datosExtra['fecha_cobro'] ?? null;
+    $archivoExpediente = $datosExtra['archivo_expediente'] ?? null;
+
+    $tieneObservacion = $datosExtra['tiene_observacion'] ?? null;
+    $diasSubsanacion = $datosExtra['dias_subsanacion'] ?? null;
+    $motivoObservacion = $datosExtra['motivo_observacion'] ?? null;
+    $fechaLimiteSubsanacion = $datosExtra['fecha_limite_subsanacion'] ?? null;
+    $archivoObservacion = $datosExtra['archivo_observacion'] ?? null;
+
+    $archivoVoucher = $datosExtra['archivo_voucher'] ?? null;
+    $confirmadoTesoreria = $datosExtra['confirmado_tesoreria'] ?? 'NO';
+
+    $chk = $conn->prepare("SELECT id FROM sub_reporte WHERE id_subs = ? LIMIT 1");
+    if (!$chk) {
+        return false;
+    }
+    $chk->bind_param("i", $idSubs);
+    $chk->execute();
+    $chk->store_result();
+    $existe = $chk->num_rows > 0;
+    $chk->close();
+
+    if ($existe) {
+        $sql = "UPDATE sub_reporte SET
+                    empresa = COALESCE(NULLIF(?, ''), empresa),
+                    cliente = COALESCE(NULLIF(?, ''), cliente),
+                    nombres = COALESCE(NULLIF(?, ''), nombres),
+                    DNI = COALESCE(NULLIF(?, ''), DNI),
+                    estado = ?,
+                    total_dias = ?,
+                    monto_diario = COALESCE(?, monto_diario),
+                    monto_total_esperado = COALESCE(?, monto_total_esperado),
+                    fecha_presentacion = COALESCE(?, fecha_presentacion),
+                    n_expediente = COALESCE(?, n_expediente),
+                    fecha_cobro = COALESCE(?, fecha_cobro),
+                    archivo_expediente = COALESCE(?, archivo_expediente),
+                    tiene_observacion = COALESCE(?, tiene_observacion),
+                    dias_subsanacion = COALESCE(?, dias_subsanacion),
+                    motivo_observacion = COALESCE(?, motivo_observacion),
+                    fecha_limite_subsanacion = COALESCE(?, fecha_limite_subsanacion),
+                    archivo_observacion = COALESCE(?, archivo_observacion),
+                    monto_pagado = COALESCE(?, monto_pagado),
+                    archivo_voucher = COALESCE(?, archivo_voucher),
+                    confirmado_tesoreria = CASE WHEN ? = 'SI' THEN 'SI' ELSE confirmado_tesoreria END
+                WHERE id_subs = ?";
+
+        $stmt = $conn->prepare($sql);
+        if (!$stmt) {
+            return false;
+        }
+        $stmt->bind_param(
+            "sssssiddsssssississdsi",
+            $empresa,
+            $cliente,
+            $nombres,
+            $dni,
+            $estado,
+            $totalDias,
+            $montoDiario,
+            $montoTotalEsperado,
+            $fechaPresentacion,
+            $nExpediente,
+            $fechaCobro,
+            $archivoExpediente,
+            $tieneObservacion,
+            $diasSubsanacion,
+            $motivoObservacion,
+            $fechaLimiteSubsanacion,
+            $archivoObservacion,
+            $montoPagado,
+            $archivoVoucher,
+            $confirmadoTesoreria,
+            $idSubs
+        );
+        $ok = $stmt->execute();
+        $stmt->close();
+        return $ok;
+    } else {
+        $sql = "INSERT INTO sub_reporte
+                    (id_subs, empresa, cliente, nombres, DNI, estado, total_dias, monto_diario, monto_total_esperado,
+                     fecha_presentacion, n_expediente, fecha_cobro, archivo_expediente,
+                     tiene_observacion, dias_subsanacion, motivo_observacion, fecha_limite_subsanacion, archivo_observacion,
+                     monto_pagado, archivo_voucher, confirmado_tesoreria)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)";
+
+        $stmt = $conn->prepare($sql);
+        if (!$stmt) {
+            return false;
+        }
+        $stmt->bind_param(
+            "isssssiddsssssissdsss",
+            $idSubs,
+            $empresa,
+            $cliente,
+            $nombres,
+            $dni,
+            $estado,
+            $totalDias,
+            $montoDiario,
+            $montoTotalEsperado,
+            $fechaPresentacion,
+            $nExpediente,
+            $fechaCobro,
+            $archivoExpediente,
+            $tieneObservacion,
+            $diasSubsanacion,
+            $motivoObservacion,
+            $fechaLimiteSubsanacion,
+            $archivoObservacion,
+            $montoPagado,
+            $archivoVoucher,
+            $confirmadoTesoreria
+        );
+        $ok = $stmt->execute();
+        $stmt->close();
+        return $ok;
+    }
+}
+
+$accion = trim($_POST['accion'] ?? 'actualizar_estado');
+$idSubs = isset($_POST['id_subs']) ? intval($_POST['id_subs']) : 0;
+
+if ($idSubs <= 0) {
+    http_response_code(400);
+    echo json_encode(['ok' => false, 'msg' => 'ID de subsidio no válido.']);
+    exit;
+}
+
+$estadosValidos = [
+    'notificado por planillas',
+    'en tramite',
+    'observado',
+    'registro de pago',
+    'conciliacion'
+];
+
+switch ($accion) {
+    case 'guardar_en_tramite':
+        $fechaPresentacion = trim($_POST['fechaPresentacion'] ?? '');
+        $numExpediente = trim($_POST['numExpediente'] ?? '');
+        $fechaCobro = trim($_POST['fechaCobro'] ?? '');
+        $mantenerEstado = ($_POST['mantener_estado'] ?? '0') === '1';
+
+        if (!$mantenerEstado && ($fechaPresentacion === '' || $numExpediente === '')) {
+            http_response_code(400);
+            echo json_encode(['ok' => false, 'msg' => 'Completa la fecha de presentación y el N° de expediente.']);
+            exit;
+        }
+
+        $subida = guardarArchivoSubido('archivo', 'expedientes');
+        if (!$subida['ok']) {
+            http_response_code(400);
+            echo json_encode(['ok' => false, 'msg' => $subida['msg']]);
+            exit;
+        }
+
+        $nuevoEstado = 'en tramite';
+        actualizarEstadoSubsidioSiExiste($conn, $idSubs, $nuevoEstado);
+
+        $guardado = guardarEnSubReporte($conn, $idSubs, $nuevoEstado, [
+            'fecha_presentacion' => $fechaPresentacion !== '' ? $fechaPresentacion : null,
+            'n_expediente'       => $numExpediente !== '' ? $numExpediente : null,
+            'fecha_cobro'        => $fechaCobro !== '' ? $fechaCobro : null,
+            'archivo_expediente' => $subida['ruta']
+        ]);
+
+        if ($guardado) {
+            echo json_encode(['ok' => true, 'estado' => $nuevoEstado]);
+        } else {
+            http_response_code(500);
+            echo json_encode(['ok' => false, 'msg' => 'Error al guardar en sub_reporte: ' . $conn->error]);
+        }
+        break;
+
+    case 'observado_no':
+        $estadoDestino = 'registro de pago';
+        actualizarEstadoSubsidioSiExiste($conn, $idSubs, $estadoDestino);
+
+        $guardado = guardarEnSubReporte($conn, $idSubs, $estadoDestino, [
+            'tiene_observacion' => 'NO'
+        ]);
+
+        if ($guardado) {
+            echo json_encode(['ok' => true, 'estado' => $estadoDestino]);
+        } else {
+            http_response_code(500);
+            echo json_encode(['ok' => false, 'msg' => 'Error al avanzar a Registro de pago en sub_reporte: ' . $conn->error]);
+        }
+        break;
+
+    case 'subsanar_observado':
+        $diasSub = isset($_POST['diasSubsanacion']) ? intval($_POST['diasSubsanacion']) : 0;
+        $motivo = trim($_POST['motivoObservacion'] ?? '');
+
+        if ($diasSub <= 0 || $motivo === '') {
+            http_response_code(400);
+            echo json_encode(['ok' => false, 'msg' => 'Ingresa los días de subsanación y el motivo.']);
+            exit;
+        }
+
+        $subida = guardarArchivoSubido('archivo', 'observaciones');
+        if (!$subida['ok']) {
+            http_response_code(400);
+            echo json_encode(['ok' => false, 'msg' => $subida['msg']]);
+            exit;
+        }
+
+        $fechaLimite = date('Y-m-d', strtotime("+{$diasSub} days"));
+        $estadoRetorno = 'en tramite';
+        actualizarEstadoSubsidioSiExiste($conn, $idSubs, $estadoRetorno);
+
+        $guardado = guardarEnSubReporte($conn, $idSubs, $estadoRetorno, [
+            'tiene_observacion'        => 'SI',
+            'dias_subsanacion'         => $diasSub,
+            'motivo_observacion'       => $motivo,
+            'fecha_limite_subsanacion' => $fechaLimite,
+            'archivo_observacion'      => $subida['ruta']
+        ]);
+
+        if ($guardado) {
+            echo json_encode(['ok' => true, 'estado' => $estadoRetorno, 'fecha_limite' => $fechaLimite]);
+        } else {
+            http_response_code(500);
+            echo json_encode(['ok' => false, 'msg' => 'Error al registrar subsanación: ' . $conn->error]);
+        }
+        break;
+
+    case 'guardar_pago':
+        $monto = isset($_POST['monto']) && $_POST['monto'] !== '' ? floatval($_POST['monto']) : null;
+        if ($monto === null || $monto <= 0) {
+            http_response_code(400);
+            echo json_encode(['ok' => false, 'msg' => 'Ingresa un monto válido mayor a 0.']);
+            exit;
+        }
+
+        $subida = guardarArchivoSubido('voucher', 'vouchers');
+        if (!$subida['ok']) {
+            http_response_code(400);
+            echo json_encode(['ok' => false, 'msg' => $subida['msg']]);
+            exit;
+        }
+
+        $estadoSiguiente = 'conciliacion';
+        actualizarEstadoSubsidioSiExiste($conn, $idSubs, $estadoSiguiente);
+
+        $guardado = guardarEnSubReporte($conn, $idSubs, $estadoSiguiente, [
+            'monto_pagado'    => $monto,
+            'archivo_voucher' => $subida['ruta']
+        ]);
+
+        if ($guardado) {
+            echo json_encode(['ok' => true, 'estado' => $estadoSiguiente]);
+        } else {
+            http_response_code(500);
+            echo json_encode(['ok' => false, 'msg' => 'Error al guardar pago en sub_reporte: ' . $conn->error]);
+        }
+        break;
+
+    case 'confirmar_conciliacion':
+        $estadoFinal = 'conciliacion';
+        actualizarEstadoSubsidioSiExiste($conn, $idSubs, $estadoFinal);
+
+        $guardado = guardarEnSubReporte($conn, $idSubs, $estadoFinal, [
+            'confirmado_tesoreria' => 'SI'
+        ]);
+
+        if ($guardado) {
+            echo json_encode(['ok' => true, 'estado' => $estadoFinal]);
+        } else {
+            http_response_code(500);
+            echo json_encode(['ok' => false, 'msg' => 'Error al confirmar conciliación en sub_reporte: ' . $conn->error]);
+        }
+        break;
+
+    case 'actualizar_estado':
+    default:
+        $nuevoEstado = strtolower(trim($_POST['nuevo_estado'] ?? ''));
+        if (!in_array($nuevoEstado, $estadosValidos, true)) {
+            http_response_code(400);
+            echo json_encode(['ok' => false, 'msg' => 'Estado no válido.']);
+            exit;
+        }
+
+        actualizarEstadoSubsidioSiExiste($conn, $idSubs, $nuevoEstado);
+        $guardado = guardarEnSubReporte($conn, $idSubs, $nuevoEstado);
+
+        if ($guardado) {
+            echo json_encode(['ok' => true, 'estado' => $nuevoEstado]);
+        } else {
+            http_response_code(500);
+            echo json_encode(['ok' => false, 'msg' => 'Error al actualizar estado en sub_reporte: ' . $conn->error]);
+        }
+        break;
+}
+
+
+
+descabsomedicoguardar
+<?php
+// Limpiar cualquier salida previa o espacio en blanco para que el JSON viaje limpio
+ob_clean();
+ob_start();
+
+session_start();
+include "../../conexion.php";
+
+// Desactivar la visualización directa de errores en pantalla para no corromper el JSON
+ini_set('display_errors', 0);
+error_reporting(E_ALL);
+
+header('Content-Type: application/json; charset=utf-8');
+
+if ($_SERVER["REQUEST_METHOD"] == "POST") {
+    $usu_iId = isset($_SESSION['idUser']) ? (int)$_SESSION['idUser'] : 0;
+    $tipoAusencia =$_POST['tipoAusencia'] ?? null;
+    $fechaInicio =$_POST['fechaInicio'] ?? null;
+    $fechaFin =$_POST['fechaFin'] ?? null;
+    $dni =$_POST['dni'] ?? null;
+    $subunidad =$_POST['subunidad'] ?? null;
+    $conplaId =$_POST['conplaId'] ?? null;
+    $cliId =$_POST['cliId'] ?? null;
+    $montoDiario = isset($_POST['monto_diario']) && $_POST['monto_diario'] !== '' ? (float)$_POST['monto_diario'] : 0.00;
+
+    $forzarNormal = isset($_POST['forzar_normal']) ?$_POST['forzar_normal'] === '1' : false;
+
+    date_default_timezone_set('America/Lima');
+    $fecha_hoy = date("Y-m-d");
+
+    if (!$usu_iId || !$tipoAusencia \vert{}\vert{} !$fechaInicio || !$fechaFin \vert{}\vert{} !$dni || !$conplaId \vert{}\vert{} !$cliId) {
+        ob_clean();
+        echo json_encode(["error" => "Faltan datos obligatorios."]);
+        exit;
+    }
+
+    // Buscar platra_iId, conpla_iCodigo y nombre del trabajador
+    $consulta01 = "SELECT DISTINCT ptl.platra_iId, cp.conpla_iCodigo, p.per_vcNombres
+                   FROM persona p
+                   INNER JOIN planilla_trabajadorlog ptl ON ptl.per_iId = p.per_iId
+                   INNER JOIN contrato_planilla cp ON cp.conpla_iId = ptl.conpla_iId
+                   WHERE p.per_vcDocumento = ? AND cp.conpla_iId = ?";
+                   
+    $stmt = $conn->prepare($consulta01);
+    if (!$stmt) {
+        ob_clean();
+        echo json_encode(["error" => "Error en BD: " . $conn->error]);
+        exit;
+    }
+    $stmt->bind_param("ss", $dni, $conplaId);$stmt->execute();
+    $stmt->bind_result($platra_iId, $conpla_iCodigo,$nombreTrabajador);
+
+    if (!$stmt->fetch()) {$stmt->close();
+        ob_clean();
+        echo json_encode(["error" => "No se encontró ningún registro asociado al DNI y contrato."]);
+        exit;
+    }
+    $stmt->close();
+
+    // Procesar archivo adjunto si existe
+    $documentoDatos = null;
+    $documentoNombre = null;
+    $documentoTipo = null;
+
+    if (isset($_FILES["documento"]) && $_FILES["documento"]["error"] == 0) {
+        $documentoNombre =$_FILES["documento"]["name"];
+        $documentoTipo =$_FILES["documento"]["type"];
+        $documentoDatos = file_get_contents($_FILES["documento"]["tmp_name"]);
+    }
+
+    // Función auxiliar para insertar absentismo y actualizar tareo/asistencia
+    function registrarAbsentismoYTareo($conn,$cliId, $conplaId,$conpla_iCodigo, $tipo,$fInicio, $fFin,$platra_iId, $dni,$docDatos, $docNombre,$docTipo, $usuId,$fHoy, $montoDiario = 0.00) {$query = "INSERT INTO planilla_trabajador_absentismosalud 
+                  (cli_iId, conpla_iId, conpla_iCodigo, platraabs_conceptoRemunerativo, platraabs_fechaInicio, platraabs_fechaFin, platra_iId, 
+                  platraabs_dni, platraabs_documento, platraabs_documentoNombre, platraabs_tipoArchivo, usu_iId, platraabs_fechaInsercion)
+                  VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)";
+
+        $stmt = $conn->prepare($query);
+        if (!$stmt) {
+            return false;
+        }
+        
+        $stmt->bind_param("sssssssssssis", $cliId, $conplaId,$conpla_iCodigo, $tipo,$fInicio, $fFin,$platra_iId, $dni,$docDatos, $docNombre,$docTipo, $usuId,$fHoy);
+        
+        if ($stmt->execute()) {$stmt->close();
+
+            if ($tipo === 'SUB' \vert{}\vert{}$tipo === 'SUBM') {
+                $nombreEmpresa = 'Empresa';$queryEmp = "SELECT cli_vcRazonSocial FROM cliente WHERE cli_iId = ?";
+                $stmtEmp = $conn->prepare($queryEmp);
+                if ($stmtEmp) {$stmtEmp->bind_param("s", $cliId);$stmtEmp->execute();
+                    $stmtEmp->bind_result($empEncontrada);
+                    if ($stmtEmp->fetch() && !empty($empEncontrada)) {
+                        $nombreEmpresa =$empEncontrada;
+                    }
+                    $stmtEmp->close();
+                }
+
+                global $nombreTrabajador;
+                $montoDiarioNum = (float)$montoDiario;
+
+                $querySubIns = "INSERT INTO subsidios (empresa, nombre_trabajador, numdocumento, fecha_inicio, fecha_fin, monto_diario) VALUES (?, ?, ?, ?, ?, ?)";
+                $stmtSub = $conn->prepare($querySubIns);
+                if ($stmtSub) {$stmtSub->bind_param("sssssd", $nombreEmpresa,$nombreTrabajador, $dni,$fInicio, $fFin,$montoDiarioNum);
+                    $stmtSub->execute();$stmtSub->close();
+                }
+            }
+
+            if (in_array($tipo, ['DM', 'SUB', 'SUBM'])) {
+                $for_iId_map = ['DM' => 66, 'SUB' => 87, 'SUBM' => 136];$for_iId = $for_iId_map[$tipo];
+
+                $inicio = new DateTime($fInicio);$fin = new DateTime($fFin);$intervalo = new DateInterval('P1D');
+                $periodo = new DatePeriod($inicio, $intervalo,$fin->modify('+1 day'));
+
+                $delete2 = "DELETE FROM planilla_trabajador_asistenciatareo WHERE platra_iId = ? AND conpla_iCodigo = ? AND platraast_fecha BETWEEN ? AND ?";
+                $stmtDel2 = $conn->prepare($delete2);
+                if ($stmtDel2) {$stmtDel2->bind_param("ssss", $platra_iId,$conpla_iCodigo, $fInicio,$fFin);
+                    $stmtDel2->execute();$stmtDel2->close();
+                }
+                
+                $queryInsert = "INSERT INTO planilla_trabajador_asistenciatareo (platra_iId, conpla_iCodigo, for_iId, platraast_fecha, platraast_tiempo) VALUES (?, ?, ?, ?, ?)";
+                $stmt2 = $conn->prepare($queryInsert);
+                if ($stmt2) {
+                    foreach ($periodo as$fecha) {
+                        $fechaFormato =$fecha->format('Y-m-d');
+                        $tiempo = '1';$stmt2->bind_param("sssss", $platra_iId,$conpla_iCodigo, $for_iId,$fechaFormato, $tiempo);$stmt2->execute();
+                    }
+                    $stmt2->close();
+                }
+
+                $delete1 = "DELETE FROM planilla_trabajador_asistencia WHERE platra_iId = ? AND conpla_iCodigo = ? AND platraas_fecha BETWEEN ? AND ?";
+                $stmtDel1 = $conn->prepare($delete1);
+                if ($stmtDel1) {$stmtDel1->bind_param("ssss", $platra_iId,$conpla_iCodigo, $fInicio,$fFin);
+                    $stmtDel1->execute();$stmtDel1->close();
+                }
+            }
+            return true;
+        }
+        return false;
+    }
+
+    // VALIDACIÓN INICIAL Y CÁLCULO DE LOS 20 DÍAS
+    if ($tipoAusencia === 'DM' && !$forzarNormal) {
+        $anioActual = date('Y', strtotime($fechaInicio));
+
+        $querySuma = "SELECT SUM(DATEDIFF(pta.platraabs_fechaFin, pta.platraabs_fechaInicio) + 1) AS dias_acumulados
+                      FROM planilla_trabajador_absentismosalud pta
+                      WHERE pta.platraabs_dni = ? 
+                        AND YEAR(pta.platraabs_fechaInicio) = ?
+                        AND pta.platraabs_conceptoRemunerativo = 'DM'";
+        $stmtSuma = $conn->prepare($querySuma);
+        $stmtSuma->bind_param("ss", $dni, $anioActual);$stmtSuma->execute();
+        $stmtSuma->bind_result($diasPrevios);
+        $stmtSuma->fetch();$stmtSuma->close();
+
+        $diasPrevios = intval($diasPrevios ?? 0);
+        $diasRestantesEmpresa = max(0, 20 -$diasPrevios);
+
+        $f1 = new DateTime($fechaInicio);$f2 = new DateTime($fechaFin);$diasNuevos = $f1->diff($f2)->days + 1;
+
+        if ($diasRestantesEmpresa === 0 || $diasNuevos >$diasRestantesEmpresa) {
+            ob_clean();
+            echo json_encode([
+                "limite_alcanzado" => true,
+                "nombre" => $nombreTrabajador,
+                "dias_restantes" => $diasRestantesEmpresa
+            ]);
+            exit;
+        }
+
+        if ($diasNuevos <= $diasRestantesEmpresa) {$diasDisponiblesDespues = $diasRestantesEmpresa -$diasNuevos;
+            ob_clean();
+            echo json_encode([
+                "dias_disponibles" => true,
+                "nombre" => $nombreTrabajador,
+                "dias_restantes" => $diasDisponiblesDespues
+            ]);
+            exit;
+        }
+    }
+
+    // GUARDADO NORMAL O DIRECTO (Para Subsidios, Maternidad o Descansos forzados bajo el límite)
+    if ($forzarNormal \vert{}\vert{} in_array($tipoAusencia, ['SUB', 'SUBM'])) {
+        if (registrarAbsentismoYTareo($conn, $cliId,$conplaId, $conpla_iCodigo,$tipoAusencia, $fechaInicio,$fechaFin, $platra_iId,$dni, $documentoDatos,$documentoNombre, $documentoTipo,$usu_iId, $fecha_hoy,$montoDiario)) {
+            ob_clean();
+            echo json_encode(["mensaje" => "Registro guardado exitosamente."]);
+        } else {
+            ob_clean();
+            echo json_encode(["error" => "Error al guardar los datos en la base de datos."]);
+        }
+        exit;
+    }
+
+    ob_clean();
+    echo json_encode(["error" => "Tipo de ausencia no válido o acción no reconocida."]);
+    exit;
+}
+
+
+
+
+
+
+subsidiocontroller
+<?php
+session_start();
+include "../../conexion.php";
+
+header('Content-Type: application/json; charset=utf-8');
+
+if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
+    http_response_code(405);
+    echo json_encode(['ok' => false, 'msg' => 'Método no permitido']);
+    exit;
+}
+
+if (!$conn) {
+    http_response_code(500);
+    echo json_encode(['ok' => false, 'msg' => 'Sin conexión a la base de datos']);
+    exit;
+}
+
+function columnaExiste(mysqli $conn, string $tabla, string $columna): bool
+{
+    $tablaEsc = $conn->real_escape_string($tabla);
+    $colEsc = $conn->real_escape_string($columna);
+    $res = $conn->query("SHOW COLUMNS FROM `{$tablaEsc}` LIKE '{$colEsc}'");
+    return ($res && $res->num_rows > 0);
+}
+
+function guardarArchivoSubido(string $campoInput, string $subcarpeta): array
+{
+    if (!isset($_FILES[$campoInput]) || $_FILES[$campoInput]['error'] === UPLOAD_ERR_NO_FILE) {
+        return ['ok' => true, 'ruta' => null];
+    }
+
+    if ($_FILES[$campoInput]['error'] !== UPLOAD_ERR_OK) {
+        return ['ok' => false, 'msg' => 'Error al recibir el archivo adjunto.'];
+    }
+
+    $nombreOriginal = basename($_FILES[$campoInput]['name']);
+    $extension = strtolower(pathinfo($nombreOriginal, PATHINFO_EXTENSION));
+    $permitidas = ['pdf', 'jpg', 'jpeg', 'png', 'webp'];
+
+    if (!in_array($extension, $permitidas, true)) {
+        return ['ok' => false, 'msg' => 'Formato de archivo no permitido (usa PDF, JPG, JPEG, PNG o WEBP).'];
+    }
+
+    $dirBase = __DIR__ . '/../uploads/subsidios/' . trim($subcarpeta, '/');
+    if (!is_dir($dirBase) && !mkdir($dirBase, 0775, true)) {
+        return ['ok' => false, 'msg' => 'No se pudo crear el directorio de archivos.'];
+    }
+
+    $nombreUnico = 'sub_' . time() . '_' . bin2hex(random_bytes(4)) . '.' . $extension;
+    $rutaFisica = $dirBase . '/' . $nombreUnico;
+
+    if (!move_uploaded_file($_FILES[$campoInput]['tmp_name'], $rutaFisica)) {
+        return ['ok' => false, 'msg' => 'No se pudo guardar el archivo en el servidor.'];
+    }
+
+    return ['ok' => true, 'ruta' => 'uploads/subsidios/' . trim($subcarpeta, '/') . '/' . $nombreUnico];
+}
+
+function actualizarEstadoSubsidioSiExiste(mysqli $conn, int $idSubs, string $estado): void
+{
+    if (!columnaExiste($conn, 'subsidios', 'estado')) {
+        return;
+    }
+    $stmt = $conn->prepare("UPDATE subsidios SET estado = ? WHERE id_subs = ?");
+    if ($stmt) {
+        $stmt->bind_param("si", $estado, $idSubs);
+        $stmt->execute();
+        $stmt->close();
+    }
+}
+
+function resolverClientePorEmpresa(mysqli $conn, string $empresa): string
+{
+    if (trim($empresa) === '') {
+        return '';
+    }
+    $sql = "SELECT cli.cli_vcRazonSocial
+            FROM cliente AS cli
+            INNER JOIN contrato AS c ON c.cli_iId = cli.cli_iId
+            INNER JOIN contrato_empresa AS cem ON cem.con_iId = c.con_iId
+            INNER JOIN cliente AS cl ON cl.cli_iId = cem.cli_iId
+            WHERE cl.cli_vcRazonSocial = ? OR cli.cli_vcRazonSocial = ?
+            LIMIT 1";
+    $stmt = $conn->prepare($sql);
+    if (!$stmt) {
+        return '';
+    }
+    $stmt->bind_param("ss", $empresa, $empresa);
+    $stmt->execute();
+    $stmt->bind_result($clienteResuelto);
+    $encontrado = $stmt->fetch();
+    $stmt->close();
+
+    return $encontrado ? trim((string)$clienteResuelto) : '';
+}
+
+function guardarEnSubReporte(mysqli $conn, int $idSubs, string $estado, array $datosExtra = []): bool
+{
+    $tieneColClienteSubs = columnaExiste($conn, 'subsidios', 'cliente');
+    $tieneColMontoDiarioSubs = columnaExiste($conn, 'subsidios', 'monto_diario');
+
+    $sqlCliente = $tieneColClienteSubs ? "COALESCE(cliente, '')" : "''";
+    $sqlMontoDiario = $tieneColMontoDiarioSubs ? "COALESCE(monto_diario, 0)" : "0";
+
+    $sqlSub = "SELECT empresa, {$sqlCliente} AS cliente, nombre_trabajador, numdocumento, fecha_inicio, fecha_fin, {$sqlMontoDiario} AS monto_diario
+               FROM subsidios
+               WHERE id_subs = ?
+               LIMIT 1";
+    $stmtSub = $conn->prepare($sqlSub);
+    if (!$stmtSub) {
+        return false;
+    }
+    $stmtSub->bind_param("i", $idSubs);
+    $stmtSub->execute();
+    $stmtSub->bind_result($empresa, $cliente, $nombres, $dni, $fechaInicio, $fechaFin, $montoDiarioSubs);
+    $encontrado = $stmtSub->fetch();
+    $stmtSub->close();
+
+    if (!$encontrado) {
+        return false;
+    }
+
+    if (trim((string)$cliente) === '') {
+        $cliente = resolverClientePorEmpresa($conn, (string)$empresa);
+    }
+
+    $totalDias = 0;
+    if (!empty($fechaInicio) && !empty($fechaFin)) {
+        $d1 = new DateTime($fechaInicio);
+        $d2 = new DateTime($fechaFin);
+        $totalDias = max(0, (int)$d1->diff($d2)->days + 1);
+    }
+
+    $montoPagado = $datosExtra['monto_pagado'] ?? null;
+    $montoDiario = ((float)$montoDiarioSubs > 0) ? (float)$montoDiarioSubs : null;
+    if ($montoDiario === null && $montoPagado !== null && $totalDias > 0) {
+        $montoDiario = round((float)$montoPagado / $totalDias, 2);
+    }
+
+    $montoTotalEsperado = ($montoDiario !== null && $totalDias > 0)
+        ? round($montoDiario * $totalDias, 2)
+        : ($montoPagado !== null ? (float)$montoPagado : null);
+
+    $fechaPresentacion = $datosExtra['fecha_presentacion'] ?? null;
+    $nExpediente = $datosExtra['n_expediente'] ?? null;
+    $fechaCobro = $datosExtra['fecha_cobro'] ?? null;
+    $archivoExpediente = $datosExtra['archivo_expediente'] ?? null;
+
+    $tieneObservacion = $datosExtra['tiene_observacion'] ?? null;
+    $diasSubsanacion = $datosExtra['dias_subsanacion'] ?? null;
+    $motivoObservacion = $datosExtra['motivo_observacion'] ?? null;
+    $fechaLimiteSubsanacion = $datosExtra['fecha_limite_subsanacion'] ?? null;
+    $archivoObservacion = $datosExtra['archivo_observacion'] ?? null;
+
+    $archivoVoucher = $datosExtra['archivo_voucher'] ?? null;
+    $confirmadoTesoreria = $datosExtra['confirmado_tesoreria'] ?? 'NO';
+
+    $chk = $conn->prepare("SELECT id FROM sub_reporte WHERE id_subs = ? LIMIT 1");
+    if (!$chk) {
+        return false;
+    }
+    $chk->bind_param("i", $idSubs);
+    $chk->execute();
+    $chk->store_result();
+    $existe = $chk->num_rows > 0;
+    $chk->close();
+
+    if ($existe) {
+        $sql = "UPDATE sub_reporte SET
+                    empresa = COALESCE(NULLIF(?, ''), empresa),
+                    cliente = COALESCE(NULLIF(?, ''), cliente),
+                    nombres = COALESCE(NULLIF(?, ''), nombres),
+                    DNI = COALESCE(NULLIF(?, ''), DNI),
+                    estado = ?,
+                    total_dias = ?,
+                    monto_diario = COALESCE(?, monto_diario),
+                    monto_total_esperado = COALESCE(?, monto_total_esperado),
+                    fecha_presentacion = COALESCE(?, fecha_presentacion),
+                    n_expediente = COALESCE(?, n_expediente),
+                    fecha_cobro = COALESCE(?, fecha_cobro),
+                    archivo_expediente = COALESCE(?, archivo_expediente),
+                    tiene_observacion = COALESCE(?, tiene_observacion),
+                    dias_subsanacion = COALESCE(?, dias_subsanacion),
+                    motivo_observacion = COALESCE(?, motivo_observacion),
+                    fecha_limite_subsanacion = COALESCE(?, fecha_limite_subsanacion),
+                    archivo_observacion = COALESCE(?, archivo_observacion),
+                    monto_pagado = COALESCE(?, monto_pagado),
+                    archivo_voucher = COALESCE(?, archivo_voucher),
+                    confirmado_tesoreria = CASE WHEN ? = 'SI' THEN 'SI' ELSE confirmado_tesoreria END
+                WHERE id_subs = ?";
+
+        $stmt = $conn->prepare($sql);
+        if (!$stmt) {
+            return false;
+        }
+        $stmt->bind_param(
+            "sssssiddsssssississdsi",
+            $empresa,
+            $cliente,
+            $nombres,
+            $dni,
+            $estado,
+            $totalDias,
+            $montoDiario,
+            $montoTotalEsperado,
+            $fechaPresentacion,
+            $nExpediente,
+            $fechaCobro,
+            $archivoExpediente,
+            $tieneObservacion,
+            $diasSubsanacion,
+            $motivoObservacion,
+            $fechaLimiteSubsanacion,
+            $archivoObservacion,
+            $montoPagado,
+            $archivoVoucher,
+            $confirmadoTesoreria,
+            $idSubs
+        );
+        $ok = $stmt->execute();
+        $stmt->close();
+        return $ok;
+    } else {
+        $sql = "INSERT INTO sub_reporte
+                    (id_subs, empresa, cliente, nombres, DNI, estado, total_dias, monto_diario, monto_total_esperado,
+                     fecha_presentacion, n_expediente, fecha_cobro, archivo_expediente,
+                     tiene_observacion, dias_subsanacion, motivo_observacion, fecha_limite_subsanacion, archivo_observacion,
+                     monto_pagado, archivo_voucher, confirmado_tesoreria)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)";
+
+        $stmt = $conn->prepare($sql);
+        if (!$stmt) {
+            return false;
+        }
+        $stmt->bind_param(
+            "isssssiddsssssissdsss",
+            $idSubs,
+            $empresa,
+            $cliente,
+            $nombres,
+            $dni,
+            $estado,
+            $totalDias,
+            $montoDiario,
+            $montoTotalEsperado,
+            $fechaPresentacion,
+            $nExpediente,
+            $fechaCobro,
+            $archivoExpediente,
+            $tieneObservacion,
+            $diasSubsanacion,
+            $motivoObservacion,
+            $fechaLimiteSubsanacion,
+            $archivoObservacion,
+            $montoPagado,
+            $archivoVoucher,
+            $confirmadoTesoreria
+        );
+        $ok = $stmt->execute();
+        $stmt->close();
+        return $ok;
+    }
+}
+
+$accion = trim($_POST['accion'] ?? 'actualizar_estado');
+$idSubs = isset($_POST['id_subs']) ? intval($_POST['id_subs']) : 0;
+
+if ($idSubs <= 0) {
+    http_response_code(400);
+    echo json_encode(['ok' => false, 'msg' => 'ID de subsidio no válido.']);
+    exit;
+}
+
+$estadosValidos = [
+    'notificado por planillas',
+    'en tramite',
+    'observado',
+    'registro de pago',
+    'conciliacion'
+];
+
+switch ($accion) {
+    case 'guardar_en_tramite':
+        $fechaPresentacion = trim($_POST['fechaPresentacion'] ?? '');
+        $numExpediente = trim($_POST['numExpediente'] ?? '');
+        $fechaCobro = trim($_POST['fechaCobro'] ?? '');
+        $mantenerEstado = ($_POST['mantener_estado'] ?? '0') === '1';
+
+        if (!$mantenerEstado && ($fechaPresentacion === '' || $numExpediente === '')) {
+            http_response_code(400);
+            echo json_encode(['ok' => false, 'msg' => 'Completa la fecha de presentación y el N° de expediente.']);
+            exit;
+        }
+
+        $subida = guardarArchivoSubido('archivo', 'expedientes');
+        if (!$subida['ok']) {
+            http_response_code(400);
+            echo json_encode(['ok' => false, 'msg' => $subida['msg']]);
+            exit;
+        }
+
+        $nuevoEstado = 'en tramite';
+        actualizarEstadoSubsidioSiExiste($conn, $idSubs, $nuevoEstado);
+
+        $guardado = guardarEnSubReporte($conn, $idSubs, $nuevoEstado, [
+            'fecha_presentacion' => $fechaPresentacion !== '' ? $fechaPresentacion : null,
+            'n_expediente'       => $numExpediente !== '' ? $numExpediente : null,
+            'fecha_cobro'        => $fechaCobro !== '' ? $fechaCobro : null,
+            'archivo_expediente' => $subida['ruta']
+        ]);
+
+        if ($guardado) {
+            echo json_encode(['ok' => true, 'estado' => $nuevoEstado]);
+        } else {
+            http_response_code(500);
+            echo json_encode(['ok' => false, 'msg' => 'Error al guardar en sub_reporte: ' . $conn->error]);
+        }
+        break;
+
+    case 'observado_no':
+        $estadoDestino = 'registro de pago';
+        actualizarEstadoSubsidioSiExiste($conn, $idSubs, $estadoDestino);
+
+        $guardado = guardarEnSubReporte($conn, $idSubs, $estadoDestino, [
+            'tiene_observacion' => 'NO'
+        ]);
+
+        if ($guardado) {
+            echo json_encode(['ok' => true, 'estado' => $estadoDestino]);
+        } else {
+            http_response_code(500);
+            echo json_encode(['ok' => false, 'msg' => 'Error al avanzar a Registro de pago en sub_reporte: ' . $conn->error]);
+        }
+        break;
+
+    case 'subsanar_observado':
+        $diasSub = isset($_POST['diasSubsanacion']) ? intval($_POST['diasSubsanacion']) : 0;
+        $motivo = trim($_POST['motivoObservacion'] ?? '');
+
+        if ($diasSub <= 0 || $motivo === '') {
+            http_response_code(400);
+            echo json_encode(['ok' => false, 'msg' => 'Ingresa los días de subsanación y el motivo.']);
+            exit;
+        }
+
+        $subida = guardarArchivoSubido('archivo', 'observaciones');
+        if (!$subida['ok']) {
+            http_response_code(400);
+            echo json_encode(['ok' => false, 'msg' => $subida['msg']]);
+            exit;
+        }
+
+        $fechaLimite = date('Y-m-d', strtotime("+{$diasSub} days"));
+        $estadoRetorno = 'en tramite';
+        actualizarEstadoSubsidioSiExiste($conn, $idSubs, $estadoRetorno);
+
+        $guardado = guardarEnSubReporte($conn, $idSubs, $estadoRetorno, [
+            'tiene_observacion'        => 'SI',
+            'dias_subsanacion'         => $diasSub,
+            'motivo_observacion'       => $motivo,
+            'fecha_limite_subsanacion' => $fechaLimite,
+            'archivo_observacion'      => $subida['ruta']
+        ]);
+
+        if ($guardado) {
+            echo json_encode(['ok' => true, 'estado' => $estadoRetorno, 'fecha_limite' => $fechaLimite]);
+        } else {
+            http_response_code(500);
+            echo json_encode(['ok' => false, 'msg' => 'Error al registrar subsanación: ' . $conn->error]);
+        }
+        break;
+
+    case 'guardar_pago':
+        $monto = isset($_POST['monto']) && $_POST['monto'] !== '' ? floatval($_POST['monto']) : null;
+        if ($monto === null || $monto <= 0) {
+            http_response_code(400);
+            echo json_encode(['ok' => false, 'msg' => 'Ingresa un monto válido mayor a 0.']);
+            exit;
+        }
+
+        $subida = guardarArchivoSubido('voucher', 'vouchers');
+        if (!$subida['ok']) {
+            http_response_code(400);
+            echo json_encode(['ok' => false, 'msg' => $subida['msg']]);
+            exit;
+        }
+
+        $estadoSiguiente = 'conciliacion';
+        actualizarEstadoSubsidioSiExiste($conn, $idSubs, $estadoSiguiente);
+
+        $guardado = guardarEnSubReporte($conn, $idSubs, $estadoSiguiente, [
+            'monto_pagado'    => $monto,
+            'archivo_voucher' => $subida['ruta']
+        ]);
+
+        if ($guardado) {
+            echo json_encode(['ok' => true, 'estado' => $estadoSiguiente]);
+        } else {
+            http_response_code(500);
+            echo json_encode(['ok' => false, 'msg' => 'Error al guardar pago en sub_reporte: ' . $conn->error]);
+        }
+        break;
+
+    case 'confirmar_conciliacion':
+        $estadoFinal = 'conciliacion';
+        actualizarEstadoSubsidioSiExiste($conn, $idSubs, $estadoFinal);
+
+        $guardado = guardarEnSubReporte($conn, $idSubs, $estadoFinal, [
+            'confirmado_tesoreria' => 'SI'
+        ]);
+
+        if ($guardado) {
+            echo json_encode(['ok' => true, 'estado' => $estadoFinal]);
+        } else {
+            http_response_code(500);
+            echo json_encode(['ok' => false, 'msg' => 'Error al confirmar conciliación en sub_reporte: ' . $conn->error]);
+        }
+        break;
+
+    case 'actualizar_estado':
+    default:
+        $nuevoEstado = strtolower(trim($_POST['nuevo_estado'] ?? ''));
+        if (!in_array($nuevoEstado, $estadosValidos, true)) {
+            http_response_code(400);
+            echo json_encode(['ok' => false, 'msg' => 'Estado no válido.']);
+            exit;
+        }
+
+        actualizarEstadoSubsidioSiExiste($conn, $idSubs, $nuevoEstado);
+        $guardado = guardarEnSubReporte($conn, $idSubs, $nuevoEstado);
+
+        if ($guardado) {
+            echo json_encode(['ok' => true, 'estado' => $nuevoEstado]);
+        } else {
+            http_response_code(500);
+            echo json_encode(['ok' => false, 'msg' => 'Error al actualizar estado en sub_reporte: ' . $conn->error]);
+        }
+        break;
+}
+
+
+
+
+subsidio
+<?php
+session_start();
+include "../conexion.php";
+include "includes/headerSub.php";
+?>
+
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Agrupar Subsidios</title>
+
+    <style>
+        .modal.fade:not(.show) {
+            display: none !important;
+        }
+
+        .timeline-steps {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            position: relative;
+            min-width: 280px;
+            padding: 5px 0;
+        }
+        .timeline-steps::before {
+            content: '';
+            position: absolute;
+            top: 50%;
+            left: 15px;
+            right: 15px;
+            height: 3px;
+            background: #e9ecef;
+            transform: translateY(-50%);
+            z-index: 1;
+        }
+        .timeline-step {
+            position: relative;
+            z-index: 2;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            background: transparent;
+            border: none;
+            padding: 0;
+            cursor: pointer;
+        }
+        .timeline-step .circle {
+            width: 30px;
+            height: 30px;
+            border-radius: 50%;
+            background-color: #6c757d;
+            color: white;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 12px;
+            font-weight: bold;
+            transition: all 0.3s ease;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+        .timeline-step.completed .circle {
+            background-color: #198754; 
+        }
+        .timeline-step.active .circle {
+            background-color: #0d6efd; 
+            transform: scale(1.1);
+            box-shadow: 0 0 0 4px rgba(13, 110, 253, 0.25);
+        }
+        .timeline-step .label {
+            font-size: 10px;
+            margin-top: 4px;
+            color: #6c757d;
+            font-weight: 600;
+            white-space: nowrap;
+        }
+        .timeline-step.active .label {
+            color: #0d6efd;
+        }
+        .timeline-step.completed .label {
+            color: #198754;
+        }
+    </style>
+</head>
+<body>
+    
+<div class="container-fluid px-4 py-4" style="background-color: #eaebec; min-height: 90vh;">
+    
+    <!-- Encabezado -->
+    <div class="card border-0 shadow-sm rounded-4 mb-2 p-1 bg-white border-start border-secondary border-4">
+        <div>
+            <h3 class="fw-bold text-purple mb-1 text-center" style='color: #8527c4;'>AGRUPACIÓN DE SUBSIDIOS</h3>
+        </div>
+    </div>
+
+    <!-- Filtros -->
+    <div class="card border-0 shadow-sm rounded-4 mb-4 p-4 bg-white">
+        <form id="filtroForm">
+            <div class="row align-items-end g-3">
+                <div class="col-md-4">
+                    <label for="cliente" class="form-label text-secondary fw-bold small">Filtro por Cliente</label>
+                    <select id="cliente" name="cliente" class="form-select shadow-none border-light bg-light py-2 rounded-3">
+                        <option value="">Selecciona una opción</option>
+                        <?php
+                        $query_cli2 = "SELECT cli_iId, cli_vcRazonSocial FROM cliente WHERE cli_iId NOT IN (2, 3, 7, 8, 11, 16, 17, 18)";
+                        $result_cli2 = $conn ? $conn->query($query_cli2) : false;
+                        if ($result_cli2 && $result_cli2->num_rows > 0) {
+                            while ($row_cli2 = $result_cli2->fetch_assoc()) {
+                                echo '<option value="' . htmlspecialchars($row_cli2['cli_vcRazonSocial']) . '">' . htmlspecialchars($row_cli2['cli_vcRazonSocial']) . '</option>';
+                            }
+                        }
+                        ?>
+                    </select>
+                </div>
+                
+                <div class="col-md-4">
+                    <label for="trabajador" class="form-label text-secondary fw-bold small">Filtro por Trabajador</label>
+                    <select id="trabajador" name="trabajador" class="form-select shadow-none border-light bg-light py-2 rounded-3">
+                        <option value="">Selecciona una opción</option>
+                        <?php
+                        $query_tra = "SELECT nombre_trabajador FROM subsidios WHERE nombre_trabajador IS NOT NULL GROUP BY nombre_trabajador ORDER BY nombre_trabajador ASC";
+                        $result_tra = $conn ? $conn->query($query_tra) : false;
+                        if ($result_tra && $result_tra->num_rows > 0) {
+                            while ($row_tra = $result_tra->fetch_assoc()) {
+                                echo '<option value="' . htmlspecialchars($row_tra['nombre_trabajador']) . '">' . htmlspecialchars($row_tra['nombre_trabajador']) . '</option>';
+                            }
+                        }
+                        ?>
+                    </select>
+                </div>
+
+                <div class="col-md-2 text-md-end">
+                    <button type="button" class="btn btn-outline-dark px-4 shadow-sm w-100 rounded-3 py-2 fw-semibold" id="resetFiltro">
+                        <i class="fas fa-eraser me-1"></i> Limpiar
+                    </button>
+                </div>
+                
+                <div class="col-md-2 text-md-end">
+                    <button type="button" id="descargarExcel" class="btn btn-success shadow-sm px-4 rounded-3 text-white fw-semibold py-2">
+                        <i class="fas fa-file-excel me-2"></i> Exportar Excel
+                    </button>
+                </div>
+            </div>
+        </form>
+    </div>
+
+    <!-- Tabla -->
+    <div class="card border-0 shadow-sm rounded-4 p-4 bg-white">
+        <div class="table-responsive">
+            <table class="table table-striped table-bordered table-hover align-middle mb-0" id="tablaInventario">
+                <thead class="text-muted small text-uppercase bg-light sticky-top">
+                    <tr>
+                        <th class="text-center py-3 fw-bold" style="background-color: #000000; color: white; height: 40px; border-radius: 7px 0 0 0px; width: 14%;">Matriz</th>
+                        <th class="text-center py-3 fw-bold" style="background-color: #000000; color: white; height: 40px; width: 14%;">Cliente</th>
+                        <th class="text-center py-3 fw-bold" style="background-color: #000000; color: white; height: 40px; width: 16%;">Nombre Trabajador</th>
+                        <th class="text-center py-3 fw-bold" style="background-color: #000000; color: white; height: 40px; width: 8%;">DNI</th>
+                        <th class="text-center py-3 fw-bold" style="background-color: #000000; color: white; height: 40px; width: 11%;">Fechas</th>
+                        <th class="text-center py-3 fw-bold" style="background-color: #000000; color: white; height: 40px; width: 8%;">Total Días</th>
+                        <th class="text-center py-3 fw-bold" style="background-color: #000000; color: white; height: 40px; border-radius: 0 7px 7px 0; width: 29%;">Flujo del Subsidio</th>
+                    </tr>
+                </thead>
+                <tbody class="border-top-0">
+                    <?php
+                    $tieneColEstado = false;
+                    $checkCol = @mysqli_query($conn, "SHOW COLUMNS FROM subsidios LIKE 'estado'");
+                    if ($checkCol && mysqli_num_rows($checkCol) > 0) {
+                        $tieneColEstado = true;
+                    }
+
+                    $selectEstado = $tieneColEstado ? "s.estado," : "";
+
+                    $query = "SELECT 
+                                    s.id_subs,
+                                    COALESCE(MIN(rel.matriz), s.empresa) AS matriz,
+                                    COALESCE(MIN(rel.cliente), s.cliente, '') AS cliente,
+                                    s.nombre_trabajador,
+                                    s.numdocumento,
+                                    s.fecha_inicio,
+                                    s.fecha_fin,
+                                    {$selectEstado}
+                                    totales.total_dias_trabajador AS total_dias
+                              FROM subsidios s
+                              LEFT JOIN (
+                                  SELECT DISTINCT
+                                      cl.cli_vcRazonSocial AS matriz,
+                                      cli.cli_vcRazonSocial AS cliente
+                                  FROM cliente AS cli
+                                  INNER JOIN contrato AS c ON c.cli_iId = cli.cli_iId
+                                  INNER JOIN contrato_empresa AS cem ON cem.con_iId = c.con_iId
+                                  INNER JOIN cliente AS cl ON cl.cli_iId = cem.cli_iId
+                              ) rel ON (rel.matriz = s.empresa OR rel.cliente = s.empresa OR rel.cliente = s.cliente)
+                              INNER JOIN (
+                                  SELECT 
+                                      numdocumento,
+                                      SUM(DATEDIFF(fecha_fin, fecha_inicio) + 1) AS total_dias_trabajador
+                                  FROM subsidios
+                                  GROUP BY numdocumento
+                              ) totales ON s.numdocumento = totales.numdocumento
+                              GROUP BY
+                                  s.id_subs,
+                                  s.empresa,
+                                  s.cliente,
+                                  s.nombre_trabajador,
+                                  s.numdocumento,
+                                  s.fecha_inicio,
+                                  s.fecha_fin,
+                                  " . ($tieneColEstado ? "s.estado," : "") . "
+                                  totales.total_dias_trabajador
+                              ORDER BY s.id_subs DESC";
+
+                    $tieneFilas = false;
+                    $errorSql = "";
+
+                    try {
+                        $query_run = mysqli_query($conn, $query);
+                        if ($query_run && mysqli_num_rows($query_run) > 0) {
+                            $tieneFilas = true;
+                            while ($dni = mysqli_fetch_assoc($query_run)) {
+                                $estadoActual = strtolower(trim($dni['estado'] ?? 'notificado por planillas'));
+                                $pasos = [
+                                    'notificado por planillas',
+                                    'en tramite',
+                                    'observado',
+                                    'registro de pago',
+                                    'conciliacion'
+                                ];
+                                $etiquetas = [
+                                    'notificado por planillas' => 'Notificado por Planillas',
+                                    'en tramite' => 'En trámite',
+                                    'observado' => 'Observado',
+                                    'registro de pago' => 'Registro de pago',
+                                    'conciliacion' => 'Conciliación'
+                                ];
+                                $modales = [
+                                    'notificado por planillas' => '#Notificado por Planillas',
+                                    'en tramite' => '#modalEnTramite',
+                                    'observado' => '#exampleModalToggle',
+                                    'registro de pago' => '#modalRegistroPago',
+                                    'conciliacion' => '#modalConciliacion'
+                                ];
+
+                                $indiceActual = array_search($estadoActual, $pasos);
+                                if ($indiceActual === false) {
+                                    $indiceActual = 0;
+                                }
+                    ?>
+                                <tr>
+                                    <td class="text-center text-secondary small"><?= htmlspecialchars($dni['matriz'] ?? '') ?></td>
+                                    <td class="text-center text-secondary small"><?= htmlspecialchars($dni['cliente'] ?? '') ?></td>
+                                    <td class="text-center text-secondary fw-bold small"><?= htmlspecialchars($dni['nombre_trabajador'] ?? '') ?></td>
+                                    <td class="text-center">
+                                        <span class="fs-6 fw-bold">
+                                            <code><?= htmlspecialchars($dni['numdocumento'] ?? '') ?></code>
+                                        </span>
+                                    </td>
+                                    <td class="text-center">
+                                        <span class="text-secondary fw-bold small">
+                                            Inicio: <code><?= htmlspecialchars($dni['fecha_inicio'] ?? '') ?></code><br>
+                                            Fin: <code><?= htmlspecialchars($dni['fecha_fin'] ?? '') ?></code>
+                                        </span>
+                                    </td>
+                                    <td class="text-center">
+                                        <span class="badge bg-success-subtle text-secondary border border-secondary-subtle px-3 py-2 rounded-pill fw-bold">
+                                            <?= htmlspecialchars($dni['total_dias'] ?? 0) ?> días
+                                        </span>
+                                    </td>
+                                    <td>
+                                        <div class="timeline-steps" data-id="<?= htmlspecialchars($dni['id_subs'] ?? '') ?>">
+                                            <?php foreach ($pasos as $index => $paso): 
+                                                $claseEstado = "";
+                                                if ($index < $indiceActual) {
+                                                    $claseEstado = "completed";
+                                                } elseif ($index === $indiceActual) {
+                                                    $claseEstado = "active";
+                                                }
+                                            ?>
+                                                <button type="button"
+                                                        class="timeline-step <?= $claseEstado ?>"
+                                                        data-paso="<?= htmlspecialchars($paso) ?>"
+                                                        data-index="<?= $index ?>"
+                                                        data-actual="<?= $indiceActual ?>"
+                                                        data-id-subs="<?= htmlspecialchars($dni['id_subs'] ?? '') ?>"
+                                                        data-trabajador="<?= htmlspecialchars($dni['nombre_trabajador'] ?? '') ?>"
+                                                        data-dias="<?= htmlspecialchars($dni['total_dias'] ?? 0) ?>"
+                                                        data-target-modal="<?= $modales[$paso] ?>"
+                                                        title="<?= htmlspecialchars($etiquetas[$paso]) ?>">
+                                                    <div class="circle">
+                                                        <?php if ($index < $indiceActual): ?>
+                                                            <i class="bi bi-check-lg"></i>
+                                                        <?php elseif ($index === $indiceActual): ?>
+                                                            <i class="bi bi-dot"></i>
+                                                        <?php else: ?>
+                                                            <?= $index + 1 ?>
+                                                        <?php endif; ?>
+                                                    </div>
+                                                    <span class="label"><?= htmlspecialchars($etiquetas[$paso]) ?></span>
+                                                </button>
+                                            <?php endforeach; ?>
+                                        </div>
+                                    </td>
+                                </tr>
+                    <?php
+                            }
+                        } elseif (!$query_run) {
+                            $errorSql = mysqli_error($conn);
+                        }
+                    } catch (Throwable $e) {
+                        $errorSql = $e->getMessage();
+                    }
+
+                    if (!$tieneFilas) {
+                        if (!empty($errorSql)) {
+                            echo '<tr><td colspan="7" class="text-center py-4 text-danger fw-semibold">Error en la consulta de subsidios: ' . htmlspecialchars($errorSql) . '</td></tr>';
+                        } else {
+                            echo '<tr><td colspan="7" class="text-center py-5 text-muted fst-italic">No se encontraron registros de subsidios activos</td></tr>';
+                        }
+                    }
+                    ?>
+                </tbody>
+            </table>
+        </div>
+    </div>
+</div>
+
+<!-- Modal En trámite -->
+<div class="modal fade" id="modalEnTramite" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog modal-dialog-centered">
+        <div class="modal-content border-0 shadow-lg rounded-4 overflow-hidden">
+            <div class="modal-header bg-info text-white py-3 px-4">
+                <h5 class="modal-title fs-6 fw-bold">En trámite</h5>
+                <button type="button" class="btn-close btn-close-white shadow-none" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <form id="formEnTramite" method="POST" enctype="multipart/form-data">
+                <div class="modal-body p-4">
+                    <input type="hidden" name="id_subs" class="input-id-subs">
+
+                    <div class="mb-3">
+                        <label class="form-label fw-bold text-secondary">Fecha de presentación:</label>
+                        <input type="date" name="fechaPresentacion" class="form-control" required>
+                    </div>
+
+                    <div class="mb-3">
+                        <label class="form-label fw-bold text-secondary">N° Expediente:</label>
+                        <input type="text" name="numExpediente" class="form-control" required>
+                    </div>
+
+                    <div class="mb-3">
+                        <label class="form-label fw-bold text-secondary">Fecha de cobro (posterior):</label>
+                        <input type="date" name="fechaCobro" class="form-control">
+                    </div>
+
+                    <div class="mb-3">
+                        <label class="form-label fw-bold text-secondary">Archivo adjunto (PDF):</label>
+                        <input class="form-control" type="file" name="archivo" accept=".pdf">
+                    </div> 
+                </div>
+                <div class="modal-footer bg-light py-2 px-4 border-0">
+                    <button type="button" class="btn btn-secondary btn-sm rounded-pill px-3" data-bs-dismiss="modal">Cerrar</button>
+                    <button type="submit" id="btnGuardarEnTramite" class="btn btn-info btn-sm rounded-pill px-3 text-white">Continuar</button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+
+<!-- Modal Observado -->
+<div class="modal fade" id="exampleModalToggle" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog modal-dialog-centered">
+        <div class="modal-content border-0 shadow-lg rounded-4 overflow-hidden">
+            <div class="modal-header bg-success text-white py-3 px-4">
+                <h5 class="modal-title"><i class="bi bi-exclamation-diamond"></i> Observación</h5>
+                <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <div class="modal-body p-4 text-center bg-white">
+                <input type="hidden" class="input-id-subs">
+                <p class="fs-5 fw-bold text-dark mb-0">
+                    ¿Tiene Alguna Observación Sobre el Subsidio?
+                </p>
+            </div>
+            <div class="modal-footer d-flex justify-content-between">
+                <button type="button" class="btn btn-outline-secondary btn-sm rounded-pill px-3" data-bs-dismiss="modal">Salir</button>
+                <div>
+                    <button type="button" id="btnObservadoNo" class="btn btn-secondary btn-sm rounded-pill px-3">No</button>
+                    <button type="button" id="btnObservadoSi" class="btn btn-success btn-sm rounded-pill px-3" data-bs-target="#exampleModalToggle2" data-bs-toggle="modal">Sí</button>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<div class="modal fade" id="exampleModalToggle2" aria-hidden="true" tabindex="-1">
+    <div class="modal-dialog modal-dialog-centered">
+        <div class="modal-content border-0 shadow-lg rounded-4 overflow-hidden">
+            <div class="modal-header bg-success text-white py-3 px-4">
+                <h5 class="modal-title"><i class="bi bi-pencil-square"></i> Subsanar Subsidio</h5>
+                <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <form id="formSubsanarSubsidio" method="POST" enctype="multipart/form-data">
+                <div class="modal-body p-4">
+                    <input type="hidden" name="id_subs" class="input-id-subs">
+
+                    <div class="mb-3">
+                        <label class="form-label fw-bold text-secondary">Días para Subsanación:</label>
+                        <input type="number" name="diasSubsanacion" class="form-control" min="1" required>
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label fw-bold text-secondary">Motivo:</label>
+                        <textarea class="form-control" name="motivoObservacion" rows="2" required></textarea>
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label fw-bold text-secondary">Archivo adjunto (PDF):</label>
+                        <input class="form-control" type="file" name="archivo" accept=".pdf">
+                    </div> 
+                </div>
+                <div class="modal-footer d-flex justify-content-between">
+                    <button type="button" class="btn btn-outline-secondary btn-sm rounded-pill px-3" data-bs-target="#exampleModalToggle" data-bs-toggle="modal">Volver</button>
+                    <div>
+                        <button type="button" class="btn btn-secondary btn-sm rounded-pill px-3" data-bs-dismiss="modal">Cancelar</button>
+                        <button type="submit" class="btn btn-success btn-sm rounded-pill px-3">Continuar</button>
+                    </div>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+
+<!-- Modal Registro de pago -->
+<div class="modal fade" id="modalRegistroPago" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog modal-dialog-centered">
+        <div class="modal-content border-0 shadow-lg rounded-4 overflow-hidden">
+            <div class="modal-header bg-success text-white py-3 px-4">
+                <h5 class="modal-title fs-6 fw-bold">Registro de pago</h5>
+                <button type="button" class="btn-close btn-close-white shadow-none" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <form id="formRegistroPago" method="POST" enctype="multipart/form-data">
+                <div class="modal-body p-4">
+                    <input type="hidden" name="id_subs" class="input-id-subs">
+
+                    <div class="mb-3">
+                        <label class="form-label fw-bold text-secondary">Monto pagado por EsSalud:</label>
+                        <input type="number" step="0.01" min="0" name="monto" class="form-control" required>
+                    </div>
+
+                    <div class="mb-3">
+                        <label class="form-label fw-bold text-secondary">Archivo adjunto (voucher):</label>
+                        <input class="form-control" type="file" name="voucher">
+                    </div> 
+                </div>
+                <div class="modal-footer bg-light py-2 px-4 border-0">
+                    <button type="button" class="btn btn-secondary btn-sm rounded-pill px-3" data-bs-dismiss="modal">Cerrar</button>
+                    <button type="submit" class="btn btn-success btn-sm rounded-pill px-3">Continuar</button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+
+<!-- 5° Modal: Conciliación -->
+<div class="modal fade" id="modalConciliacion" tabindex="-1" aria-hidden="true" data-bs-backdrop="static">
+    <div class="modal-dialog modal-dialog-centered">
+        <div class="modal-content border-0 shadow-lg rounded-4 overflow-hidden">
+            <div class="modal-header bg-dark text-white py-3 px-4">
+                <h5 class="modal-title fw-bold fs-6">
+                    <i class="fas fa-info-circle me-2"></i> Tesorería - Conciliacion
+                </h5>
+                <button type="button" class="btn-close btn-close-white shadow-none" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <div class="modal-body p-4 text-center bg-white">
+                <input type="hidden" class="input-id-subs">
+                <p class="fs-6 text-dark mb-0">
+                   Por favor, confirmar si el pago fue realizado a la cuenta bancaria correspondiente y si la transacción quedó registrada correctamente.
+                </p>
+            </div>
+            <div class="modal-footer bg-light py-3 px-4 justify-content-center border-0">
+                <button type="button" class="btn btn-outline-secondary px-4 rounded-pill py-2" data-bs-dismiss="modal">Pendiente</button>
+                <button type="button" id="btnContinuarConciliacion" class="btn btn-dark px-4 rounded-pill shadow-sm py-2 fw-semibold">Realizado</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<?php include_once "includes/footer.php"; ?>
+
+<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+<script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
+<script src="https://cdn.datatables.net/1.13.6/js/jquery.dataTables.min.js"></script>
+<script src="https://cdn.datatables.net/1.13.6/js/dataTables.bootstrap5.min.js"></script>
+
+<script>
+    $(document).ready(function() {
+        let subsidioActivo = {
+            idSubs: null,
+            indexActual: 0,
+            esActualizacionEnTramite: false
+        };
+
+        const modalEnTramiteEl = document.querySelector('#modalEnTramite');
+        const $formEnTramite = $('#formEnTramite');
+        const $inputFechaPresentacion = $formEnTramite.find('input[name="fechaPresentacion"]');
+        const $inputNumExpediente = $formEnTramite.find('input[name="numExpediente"]');
+        const $inputFechaCobro = $formEnTramite.find('input[name="fechaCobro"]');
+        const $inputArchivoTramite = $formEnTramite.find('input[name="archivo"]');
+
+        function configurarModalEnTramite(soloFechaCobro) {
+            $formEnTramite[0].reset();
+
+            if (soloFechaCobro) {
+                $inputFechaPresentacion.prop('disabled', true).prop('required', false);
+                $inputNumExpediente.prop('disabled', true).prop('required', false);
+                $inputArchivoTramite.prop('disabled', true).prop('required', false);
+                $inputFechaCobro.prop('disabled', false).prop('readonly', false).prop('required', true);
+            } else {
+                $inputFechaPresentacion.prop('disabled', false).prop('required', true);
+                $inputNumExpediente.prop('disabled', false).prop('required', true);
+                $inputArchivoTramite.prop('disabled', false).prop('required', false);
+                $inputFechaCobro.prop('disabled', false).prop('readonly', false).prop('required', false);
+            }
+        }
+
+        if (modalEnTramiteEl) {
+            modalEnTramiteEl.addEventListener('hidden.bs.modal', function() {
+                configurarModalEnTramite(false);
+                subsidioActivo.esActualizacionEnTramite = false;
+            });
+        }
+
+        var table = $('#tablaInventario').DataTable({
+            "paging": true,
+            "pageLength": 10,
+            "lengthChange": false,
+            "ordering": false,
+            "info": false,
+            "searching": true,
+            "language": {
+                "paginate": { "previous": "Anterior", "next": "Siguiente" },
+                "info": "Mostrando _START_ a _END_ de _TOTAL_ registros",
+                "search": "Buscar:",
+                "zeroRecords": "No se encontraron registros"
+            }
+        });
+
+        function asignarIdSubsModales(idSubs) {
+            $('.input-id-subs').val(idSubs);
+            $('.modal').attr('data-id-subs', idSubs);
+        }
+
+        function enviarActualizacionEstado(idSubs, nuevoEstado, mensajeConfirmacion = null, payloadExtra = null) {
+            if (!idSubs) {
+                alert('No se identificó el subsidio seleccionado.');
+                return;
+            }
+
+            if (mensajeConfirmacion && !confirm(mensajeConfirmacion)) {
+                return;
+            }
+
+            const formData = payloadExtra instanceof FormData ? payloadExtra : new FormData();
+            formData.set('id_subs', idSubs);
+            formData.set('nuevo_estado', nuevoEstado);
+
+            fetch('procedimientos/subsidios_controller.php', {
+                method: 'POST',
+                body: formData
+            })
+            .then(async response => {
+                if (response.ok) {
+                    window.location.reload();
+                } else {
+                    const errorTexto = await response.text();
+                    alert('No se pudo actualizar el estado en el servidor: ' + errorTexto);
+                }
+            })
+            .catch(() => {
+                alert('Error de conexión al intentar guardar el cambio de estado.');
+            });
+        }
+
+        // Control secuencial del timeline
+        $('#tablaInventario').on('click', '.timeline-step', function() {
+            const pasoDestino = $(this).data('paso');
+            const indexDestino = parseInt($(this).data('index'), 10);
+            const indexActual = parseInt($(this).data('actual'), 10);
+            const idSubs = $(this).data('id-subs');
+            const trabajador = $(this).data('trabajador');
+            const dias = $(this).data('dias');
+            const targetModalSelector = $(this).data('target-modal');
+
+            // 1. Bloquear retroceso
+            if (indexDestino < indexActual) {
+                alert('No está permitido retroceder a un estado anterior.');
+                return;
+            }
+
+            // 2. Bloquear si intenta saltar etapas
+            if (indexDestino > indexActual + 1) {
+                alert('Debe completar el paso anterior antes de avanzar a este estado.');
+                return;
+            }
+
+            // 3. Si está en el mismo estado actual
+            if (indexDestino === indexActual) {
+                // Excepción en "En trámite" (índice 1): permitir abrir modal solo para registrar fecha de cobro posterior sin cambiar estado
+                if (pasoDestino === 'en tramite') {
+                    subsidioActivo = { idSubs, indexActual, esActualizacionEnTramite: true };
+                    asignarIdSubsModales(idSubs);
+                    configurarModalEnTramite(true);
+                    if (modalEnTramiteEl) {
+                        bootstrap.Modal.getOrCreateInstance(modalEnTramiteEl).show();
+                    }
+                    return;
+                }
+
+                alert('Este subsidio ya se encuentra en este estado.');
+                return;
+            }
+
+            // 4. Avance válido al siguiente paso (indexDestino === indexActual + 1)
+            subsidioActivo = { idSubs, indexActual, esActualizacionEnTramite: false };
+            asignarIdSubsModales(idSubs);
+
+            if (targetModalSelector === '#modalEnTramite') {
+                configurarModalEnTramite(false);
+            }
+
+            const modalEl = document.querySelector(targetModalSelector);
+            if (modalEl) {
+                $(modalEl).find('.modal-body')
+                    .attr('data-id-subs', idSubs)
+                    .attr('data-trabajador', trabajador)
+                    .attr('data-dias', dias);
+                bootstrap.Modal.getOrCreateInstance(modalEl).show();
+            } else {
+                enviarActualizacionEstado(
+                    idSubs,
+                    pasoDestino,
+                    `¿Desea avanzar el subsidio al estado "${pasoDestino.toUpperCase()}"?`
+                );
+            }
+        });
+
+        // Guardar modal En trámite (avanza a "en tramite" o actualiza fecha de cobro si ya estaba en "en tramite")
+        $('#formEnTramite').on('submit', function(e) {
+            e.preventDefault();
+            const idSubs = $(this).find('.input-id-subs').val() || subsidioActivo.idSubs;
+            const estadoDestino = 'en tramite';
+            const fd = new FormData(this);
+            fd.set('accion', 'guardar_en_tramite');
+            fd.set('mantener_estado', subsidioActivo.esActualizacionEnTramite ? '1' : '0');
+            enviarActualizacionEstado(idSubs, estadoDestino, null, fd);
+        });
+
+        // Excepción Observado -> NO: pasa directamente a "registro de pago"
+        $('#btnObservadoNo').on('click', function() {
+            const idSubs = $('#exampleModalToggle .input-id-subs').val() || subsidioActivo.idSubs;
+            const fd = new FormData();
+            fd.set('accion', 'observado_no');
+            enviarActualizacionEstado(
+                idSubs,
+                'registro de pago',
+                'Sin observación registrada. ¿Desea avanzar directamente a "REGISTRO DE PAGO"?',
+                fd
+            );
+        });
+
+        // Excepción Observado -> SÍ: subsanar y volver a "en tramite"
+        $('#formSubsanarSubsidio').on('submit', function(e) {
+            e.preventDefault();
+            const idSubs = $(this).find('.input-id-subs').val() || subsidioActivo.idSubs;
+            const fd = new FormData(this);
+            fd.set('accion', 'subsanar_observado');
+            fd.set('subsanado', '1');
+            enviarActualizacionEstado(idSubs, 'en tramite', null, fd);
+        });
+
+        // Guardar modal Registro de pago -> pasa a "conciliacion"
+        $('#formRegistroPago').on('submit', function(e) {
+            e.preventDefault();
+            const idSubs = $(this).find('.input-id-subs').val() || subsidioActivo.idSubs;
+            const fd = new FormData(this);
+            fd.set('accion', 'guardar_pago');
+            enviarActualizacionEstado(idSubs, 'conciliacion', null, fd);
+        });
+
+        // Confirmar modal Conciliación -> finaliza / confirma conciliación
+        $('#btnContinuarConciliacion').on('click', function() {
+            const idSubs = $('#modalConciliacion .input-id-subs').val() || subsidioActivo.idSubs;
+            const fd = new FormData();
+            fd.set('accion', 'confirmar_conciliacion');
+            enviarActualizacionEstado(
+                idSubs,
+                'conciliacion',
+                '¿Confirmar que el depósito fue verificado y conciliado por Tesorería?',
+                fd
+            );
+        });
+
+        const clienteSelect = $('#cliente');
+        const trabajadorSelect = $('#trabajador');
+
+        clienteSelect.on('change', function() {
+            var val = $(this).val();
+            if (val !== "") { 
+                trabajadorSelect.val("").prop('disabled', true); 
+            } else { 
+                trabajadorSelect.prop('disabled', false); 
+            }
+            table.column(1).search(val === "all" || val === "" ? "" : $("option:selected", this).text()).draw();
+        });
+
+        trabajadorSelect.on('change', function() {
+            var val = $(this).val();
+            if (val !== "") { 
+                clienteSelect.val("").prop('disabled', true); 
+            } else { 
+                clienteSelect.prop('disabled', false); 
+            }
+            table.column(2).search(val === "" ? "" : $("option:selected", this).text()).draw();
+        });
+
+        $('#resetFiltro').on('click', function() {
+            $('#filtroForm')[0].reset();
+            clienteSelect.prop('disabled', false);
+            trabajadorSelect.prop('disabled', false);
+            table.search('').columns().search('').draw();
+        });
+    });
+</script>
+</body>
+</html>
